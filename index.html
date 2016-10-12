@@ -27,6 +27,9 @@
 <script src="js/OBJExporter.js"></script>
 <script src="js/CSVToArray.js"></script>
 <script src="js/THREE.ConstantSpline.js"></script>
+<script src="js/WebVR.js"></script>
+<script src="js/VREffect.js"></script>
+<script src="js/VRControls.js"></script>
 
 <script src="Wagner/Wagner.js"></script>
 <script src="Wagner/Wagner.base.js"></script>
@@ -52,7 +55,7 @@ void main() {
 	vec4 c = texture2D( floorMap, uv );
 	vec3 dir = normalize( position );
 
-	gl_Position = projectionMatrix * modelViewMatrix * vec4( position + 10. * ( c.r - .5 ) * dir, 1. );
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position + .1 * ( c.r - .5 ) * dir, 1. );
 
 }
 
@@ -113,6 +116,8 @@ void main() {
 		c.pass( this.shader );
 
 	};*/
+
+	var effect;
 
 	var composer;
 	var FXAAPass, DOFPass, noisePass, rgbSplitPass;
@@ -188,7 +193,25 @@ void main() {
 		rgbSplitPass = new WAGNER.RGBSplitPass();
 		rgbSplitPass.params.delta.set( pixelRatioScale * 20, pixelRatioScale * 20 );
 
-		controls = new THREE.OrbitControls( camera );
+		//controls = new THREE.OrbitControls( camera );
+
+		controls = new THREE.VRControls( camera );
+		effect = new THREE.VREffect( renderer );
+
+		if ( navigator.getVRDisplays ) {
+
+			navigator.getVRDisplays()
+			.then( function ( displays ) {
+				effect.setVRDisplay( displays[ 0 ] );
+				controls.setVRDisplay( displays[ 0 ] );
+			} )
+			.catch( function () {
+							// no displays
+			} );
+
+			document.body.appendChild( WEBVR.getButton( effect ) );
+
+		}
 
 		scene.add( world );
 		//world.rotation.y = .1;
@@ -293,7 +316,7 @@ void main() {
 			s[ 14 ] = parseInt( s[ 14 ], 10 );
 			s[ 15 ] = parseInt( s[ 15 ], 10 );
 
-			console.log( s[ 0 ], s[ 1 ], ' | ', s[ 2 ], s[ 3 ], ' - ', s[ 4 ], s[ 5 ], ' | ', s[ 6 ], s[ 7 ] );
+			//console.log( s[ 0 ], s[ 1 ], ' | ', s[ 2 ], s[ 3 ], ' - ', s[ 4 ], s[ 5 ], ' | ', s[ 6 ], s[ 7 ] );
 
 		} );
 
@@ -304,7 +327,7 @@ void main() {
 		lat = Math.max( - 85, Math.min( 85, lat ) );
 		var phi = ( 90 - lat ) * Math.PI / 180;
 		var theta = ( 180 - lon ) * Math.PI / 180;
-		var d = 100;
+		var d = 5;
 		var x = -d * Math.sin( phi ) * Math.cos( theta );
 		var y = d * Math.cos( phi );
 		var z = d * Math.sin( phi ) * Math.sin( theta );
@@ -354,7 +377,7 @@ void main() {
 		var geometry = new THREE.Geometry();
 
 		s.calculateDistances();
-		s.reticulate( { distancePerStep: 2 } );
+		s.reticulate( { distancePerStep: .2 } );
 
 	 	var geometry = new THREE.BufferGeometry();
 
@@ -396,7 +419,7 @@ void main() {
 
 	function buildMap() {
 
-		var material = new THREE.LineBasicMaterial( { linewidth: 20 });
+		var material = new THREE.LineBasicMaterial( { linewidth: 1 });
 		var min = 10000000, max = -10000000;
 
 		mapData.forEach( ( territory, id ) => {
@@ -455,6 +478,7 @@ void main() {
 					geometry.computeBoundingSphere();
 
 					var mesh = new THREE.Line( geometry, material );
+					mesh.fustrumCulled = false;
 					world.add( mesh );
 
 					var capital = countriesData.get( id );
@@ -463,11 +487,11 @@ void main() {
 						var res = latLngToVec3( capital.latlng[ 0 ], capital.latlng[ 1 ] );
 
 						var sphere = new THREE.Mesh(
-							new THREE.BoxBufferGeometry( 1, 1, 1 ),
+							new THREE.BoxBufferGeometry( .1, .1, .1 ),
 							new THREE.MeshBasicMaterial( { color: 0x0ff00ff })
 						)
 						sphere.position.copy( res );
-						world.add( sphere );
+						//world.add( sphere );
 					} else {
 						console.log( id + ' not found')
 					}
@@ -487,14 +511,14 @@ void main() {
 
 		var from = countriesData.get( 'USA' ).latlng;
 		var to = countriesData.get( 'FRA' ).latlng;
-		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, 1 );
+		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
 
 		var material = new THREE.MeshBasicMaterial( {
 			color: 0xff00ff,
 			opacity: 1,
 			transparent: false,
 			side: THREE.DoubleSide,
-			wireframe: true
+			wireframe: !true
 		} );
 
 		var line = new THREE.Mesh( g, material );
@@ -502,18 +526,17 @@ void main() {
 
 		var from = countriesData.get( 'USA' ).latlng;
 		var to = countriesData.get( 'ESP' ).latlng;
-		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, 1 );
+		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
 
 		var line = new THREE.Mesh( g, material );
 		world.add( line );
 
 		var from = countriesData.get( 'USA' ).latlng;
 		var to = countriesData.get( 'PRT' ).latlng;
-		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, 1 );
+		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
 
 		var line = new THREE.Mesh( g, material );
 		world.add( line );
-
 
 		invalidate = true;
 
@@ -526,7 +549,7 @@ void main() {
 
 		window.location = url;*/
 
-		var geometry = new THREE.IcosahedronGeometry( 100, 6 );
+		var geometry = new THREE.IcosahedronGeometry( 5, 6 );
 
 		var loader = new THREE.TextureLoader()
 		var heightMap = loader.load( 'assets/bathymetry_bw_composite_4k.jpg', _ => invalidate = true );
@@ -546,7 +569,7 @@ void main() {
 
 		var mesh = new THREE.Mesh( geometry, material );
 		mesh.scale.x = -1
-		scene.add( mesh );
+		//scene.add( mesh );
 
 	}
 
@@ -596,17 +619,17 @@ void main() {
 		//world.rotation.z = time;
 
 		if( invalidate ) {
-			renderer.render( scene, camera );
+			effect.render( scene, camera );
 			invalidate = false;
 		}
 
-		requestAnimationFrame(render);
+		effect.requestAnimationFrame(render);
 
 	}
 
 	function onWindowResize() {
 
-		renderer.setSize( window.innerWidth, window.innerHeight );
+		effect.setSize( window.innerWidth, window.innerHeight );
 		camera.aspect = window.innerWidth / window.innerHeight;
 		camera.updateProjectionMatrix();
 
