@@ -25,6 +25,8 @@
 <script src="js/MapMesh.js"></script>
 <script src="js/THREE.MeshLine.js"></script>
 <script src="js/OBJExporter.js"></script>
+<script src="js/CSVToArray.js"></script>
+<script src="js/THREE.ConstantSpline.js"></script>
 
 <script src="Wagner/Wagner.js"></script>
 <script src="Wagner/Wagner.base.js"></script>
@@ -50,7 +52,7 @@ void main() {
 	vec4 c = texture2D( floorMap, uv );
 	vec3 dir = normalize( position );
 
-	gl_Position = projectionMatrix * modelViewMatrix * vec4( position + 10. * c.r * dir, 1. );
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position + 10. * ( c.r - .5 ) * dir, 1. );
 
 }
 
@@ -255,9 +257,45 @@ void main() {
 	function loadMap() {
 
 		Promise.all( [
+		    fetch( 'assets/data.csv' ).then( res => res.text() ).then( res => parseData( res ) ),
 			fetch( 'assets/countries.json' ).then( res => res.json() ).then( res => createCountriesMap( res ) ),
 			create().then( res => mapData = res )
 		] ).then( _ => buildMap() );
+
+	}
+
+	var globalMax = 0;
+	var globalMin = 10000000000;
+	var migrationData = new Map();
+
+	function parseData( data ) {
+
+		// region_orig, region_orig_id
+		// region_dest, region_dest_id
+		// country_orig, country_orid_id
+		// country_dest, country_dest_id
+		// region_flow_1990, regionflow_1995, region_flow_2000, region_flow_2005
+		// country_flow_1990, country_flow_1995, country_flow_2000, country_flow_2005
+		// metadata
+
+		var inData = CSVToArray( data, ',' )
+		//addUI();
+
+		inData.forEach( s => {
+
+			s[ 8 ] = parseInt( s[ 18 ], 10 );
+			s[ 9 ] = parseInt( s[ 9 ], 10 );
+			s[ 10 ] = parseInt( s[ 10 ], 10 );
+			s[ 11 ] = parseInt( s[ 11 ], 10 );
+
+			s[ 12 ] = parseInt( s[ 12 ], 10 );
+			s[ 13 ] = parseInt( s[ 13 ], 10 );
+			s[ 14 ] = parseInt( s[ 14 ], 10 );
+			s[ 15 ] = parseInt( s[ 15 ], 10 );
+
+			console.log( s[ 0 ], s[ 1 ], ' | ', s[ 2 ], s[ 3 ], ' - ', s[ 4 ], s[ 5 ], ' | ', s[ 6 ], s[ 7 ] );
+
+		} );
 
 	}
 
@@ -274,6 +312,87 @@ void main() {
 		return new THREE.Vector3( x, y, z );
 
 	}
+
+	function addTriangle( points, buffer, t ) {
+
+		for( var j = 0; j < points.length; j++ ) {
+
+			buffer[ t + 0 ] = points[ j ].x;
+			buffer[ t + 1 ] = points[ j ].y;
+			buffer[ t + 2 ] = points[ j ].z;
+
+			t += 3;
+
+		}
+
+		return t;
+
+	}
+
+	function join( a, b, w ) {
+
+		var from = latLngToVec3( a.lat, a.lon ),
+			to = latLngToVec3( b.lat, b.lon );
+
+		var dir = to.clone().sub( from ).normalize();
+		var d = from.distanceTo( to );
+
+		var s = new THREE.ConstantSpline()
+
+		s.p0 = from.clone();
+		s.p1 = from.clone().add( from.clone().normalize().multiplyScalar( -.5 * d ) );
+		s.p2 = to.clone().add( to.clone().normalize().multiplyScalar( -.5 * d ) );
+		s.p3 = to.clone();
+
+		var perpendicular = s.p1.clone().normalize().cross( dir );
+		perpendicular.normalize().multiplyScalar( .05 * d );
+		s.p1.add( perpendicular );
+		s.p2.add( perpendicular );
+
+		s.calculate();
+
+		var geometry = new THREE.Geometry();
+
+		s.calculateDistances();
+		s.reticulate( { distancePerStep: 2 } );
+
+	 	var geometry = new THREE.BufferGeometry();
+
+		var triangles = s.lPoints.length;
+		var positions = new Float32Array( triangles * 3 * 3 * 2 );
+		var colors = new Float32Array( triangles * 3 * 3 * 2 );
+
+		var p0 = s.lPoints[ 0 ];
+		var p1 = s.lPoints[ s.lPoints.length - 1 ];
+		var d = p1.clone().sub( p0 ).normalize();
+		var up = p0.clone().normalize();
+		var p = up.cross( d ).normalize();
+
+		var t = 0;
+		for( var j = 0; j < s.lPoints.length - 1; j++ ) {
+
+			var from = s.lPoints[ j ];
+			var to = s.lPoints[ j + 1 ];
+
+			var pScaled1 = p.clone().multiplyScalar( j * w / s.lPoints.length );
+			var pScaled2 = p.clone().multiplyScalar( ( j + 1 ) * w / s.lPoints.length );
+			var a = from.clone().sub( pScaled1 );
+			var b = to.clone().sub( pScaled2 );
+			var c = from.clone().add( pScaled1 );
+			var d = to.clone().add( pScaled2 );
+
+			t = addTriangle( [ a, b, c ], positions, t );
+			t = addTriangle( [ d, c, b ], positions, t );
+
+		}
+
+		geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+		geometry.addAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
+
+		return geometry;
+
+	}
+
 
 	function buildMap() {
 
@@ -366,7 +485,35 @@ void main() {
 
 		} );
 
-		console.log( min, max );
+		var from = countriesData.get( 'USA' ).latlng;
+		var to = countriesData.get( 'FRA' ).latlng;
+		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, 1 );
+
+		var material = new THREE.MeshBasicMaterial( {
+			color: 0xff00ff,
+			opacity: 1,
+			transparent: false,
+			side: THREE.DoubleSide,
+			wireframe: true
+		} );
+
+		var line = new THREE.Mesh( g, material );
+		world.add( line );
+
+		var from = countriesData.get( 'USA' ).latlng;
+		var to = countriesData.get( 'ESP' ).latlng;
+		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, 1 );
+
+		var line = new THREE.Mesh( g, material );
+		world.add( line );
+
+		var from = countriesData.get( 'USA' ).latlng;
+		var to = countriesData.get( 'PRT' ).latlng;
+		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, 1 );
+
+		var line = new THREE.Mesh( g, material );
+		world.add( line );
+
 
 		invalidate = true;
 
@@ -379,41 +526,21 @@ void main() {
 
 		window.location = url;*/
 
-		var geometry = new THREE.IcosahedronGeometry( 99, 4 );
-		var material = new THREE.MeshBasicMaterial( { color: 0, opacity: .75, transparent: true, polygonOffset: false,
-polygonOffsetFactor: 10 } );
-		var mesh = new THREE.Mesh( geometry, material );
-		//scene.add( mesh );
+		var geometry = new THREE.IcosahedronGeometry( 100, 6 );
 
-//		var geometry = new THREE.SphereGeometry( 110, 36, 36 );
-		var geometry = new THREE.IcosahedronGeometry( 110, 6 );
-
-		/*for ( var i = 0, l = geometry.faceVertexUvs[ 0 ].length; i < l; i ++ ) {
-
-			for ( var j = 0, jl = geometry.faceVertexUvs[ 0 ][ i ].length; j < jl; j ++ ) {
-
-				var uv = geometry.faceVertexUvs[ 0 ][ i ][ j ];
-
-				var a = uv.y * Math.PI - Math.PI / 2;
-				a = Math.sin(a);
-				uv.y = 0.5 - Math.log( ( 1 + a ) / ( 1 - a ) ) / ( 4 * Math.PI );
-				uv.y = 1 - uv.y;
-				uv.x = 1 - uv.x;
-
-			}
-
-		}
-
-		geometry.uvsNeedUpdate = true;*/
+		var loader = new THREE.TextureLoader()
+		var heightMap = loader.load( 'assets/bathymetry_bw_composite_4k.jpg', _ => invalidate = true );
+		var diffuseMap = loader.load( 'assets/bathymetry_diffuse_4k.jpg', _ => invalidate = true );
 
 		var material = new THREE.RawShaderMaterial( {
 			uniforms: {
-				diffuseMap: { type: 't', value: THREE.ImageUtils.loadTexture( 'assets/bathymetry_diffuse_4k.jpg' ) },
-				floorMap: { type: 't', value: THREE.ImageUtils.loadTexture( 'assets/bathymetry_bw_composite_4k.jpg' ) }
+				diffuseMap: { type: 't', value: diffuseMap },
+				floorMap: { type: 't', value: heightMap }
 			},
 			vertexShader: document.getElementById( 'floor-vs' ).textContent,
 			fragmentShader: document.getElementById( 'floor-fs' ).textContent,
 			wireframe: !true,
+			depthWrite: false,
 			side: THREE.DoubleSide
 		} );
 
