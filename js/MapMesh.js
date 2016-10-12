@@ -1,16 +1,3 @@
-function readSVG() {
-
-	return new Promise( function( resolve, reject ) {
-		var ajax = new XMLHttpRequest();
-		ajax.open("GET", "assets/BlankMap-Equirectangular.svg", true);
-		ajax.send();
-		ajax.addEventListener( 'load', function(e) {
-			resolve( ajax.responseText );
-		} );
-	});
-
-}
-
 function drawSVG( source ) {
 
 	return new Promise( function( resolve, reject ) {
@@ -119,14 +106,9 @@ function drawSVG( source ) {
 
 	    } );
 
+	    console.log( 'drawsvg' )
 		resolve( countries );
 
 	} )
-
-}
-
-function create() {
-
-	return readSVG().then( drawSVG );
 
 }

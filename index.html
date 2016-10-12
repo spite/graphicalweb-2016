@@ -11,8 +11,7 @@
 
 	<style>
 		*{box-sizing: border-box; margin: 0; padding: 0; }
-		#states{ position: absolute; left: 10px; top: 10px; list-style-type: none }
-		#states li{ cursor: pointer; float :left; padding: 5px; background-color: rgba( 255, 255,255 ,.4); margin: 0 2px 2px 0;}
+		body{ overflow: hidden; }
 	</style>
 </head>
 <body>
@@ -55,7 +54,7 @@ void main() {
 	vec4 c = texture2D( floorMap, uv );
 	vec3 dir = normalize( position );
 
-	gl_Position = projectionMatrix * modelViewMatrix * vec4( position + .1 * ( c.r - .5 ) * dir, 1. );
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position - 0. * ( c.r - .5 ) * dir, 1. );
 
 }
 
@@ -194,8 +193,8 @@ void main() {
 		rgbSplitPass.params.delta.set( pixelRatioScale * 20, pixelRatioScale * 20 );
 
 		//controls = new THREE.OrbitControls( camera );
-
 		controls = new THREE.VRControls( camera );
+
 		effect = new THREE.VREffect( renderer );
 
 		if ( navigator.getVRDisplays ) {
@@ -265,31 +264,103 @@ void main() {
 
 	}
 
-	var countriesData, mapData;
+	var countriesData, mapData, migrationData, inData, outData;
 
 	function createCountriesMap( data ) {
 
-		countriesData = new Map();
+		var map = new Map();
 
 		data.forEach( c => {
-			countriesData.set( c.cca3, c );
+			map.set( c.cca3, c );
 		} );
+
+		return map;
 
 	}
 
 	function loadMap() {
 
 		Promise.all( [
-		    fetch( 'assets/data.csv' ).then( res => res.text() ).then( res => parseData( res ) ),
-			fetch( 'assets/countries.json' ).then( res => res.json() ).then( res => createCountriesMap( res ) ),
-			create().then( res => mapData = res )
+		    fetch( 'assets/BlankMap-Equirectangular.svg' )
+		    	.then( res => res.text() )
+		    	.then( res => {
+		    		return Promise.all( [
+		    			drawSVG( res )
+		    				.then( res => mapData = res ),
+		    			createWorldMask( res )
+		    		] )
+		    	} ),
+		    fetch( 'assets/data.csv' )
+		    	.then( res => res.text() )
+		    	.then( res => parseData( res ) )
+		    	.then( res => [ inData, outData ] = res ),
+			fetch( 'assets/countries.json' )
+				.then( res => res.json() )
+				.then( res => createCountriesMap( res ) )
+				.then( res => countriesData = res )
 		] ).then( _ => buildMap() );
+
+	}
+
+	function createWorldMask( source ) {
+
+		return new Promise( ( resolve, reject ) => {
+
+			var d = new DOMParser();
+			var doc = d.parseFromString( source, "image/svg+xml");
+			var countries = doc.querySelectorAll( '.country path' );
+			[].forEach.call( countries, function( l, i ) {
+				l.setAttribute( 'fill', 'rgb(255,0,' + i + ')' );
+				l.setAttribute( 'stroke', 'rgb(255,0,' + i + ')' );
+				l.setAttribute( 'stroke-width', 0 );
+				/*codes[ i ] = {
+					id: l.getAttribute( 'id' ),
+					name: l.getAttribute( 'title' )
+				}*/
+			} );
+			//var src = doc.children[ 0 ].outerHTML; // works on FF & Ch
+
+			var oSerializer = new XMLSerializer();
+			var src = oSerializer.serializeToString(doc);
+
+			var img = new Image();
+			var svg = new Blob([ src ], {type: 'image/svg+xml;charset=utf-8'});
+			var DOMURL = window.URL || window.webkitURL || window;
+			var url = DOMURL.createObjectURL(svg);
+
+			img.onload = function () {
+
+				var canvas = document.createElement( 'canvas' );
+				var ctx = canvas.getContext( '2d' );
+				canvas.width = 4096;
+				canvas.height = 2048;
+				ctx.drawImage( img, 0, 0, img.width, img.height, 0, 0, canvas.width, canvas.height );
+				DOMURL.revokeObjectURL( url );
+
+				var texture = new THREE.Texture( canvas );
+				texture.needsUpdate = true;
+
+				var mesh = new THREE.Mesh(
+					new THREE.IcosahedronGeometry( 5, 6 ),
+					new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } )
+				);
+				//scene.add( mesh );
+				mesh.scale.x = -1;
+
+				console.log( 'createworldmask' )
+				resolve();
+
+			}
+
+			img.src = url;
+
+			//createTextLabels();
+		} );
 
 	}
 
 	var globalMax = 0;
 	var globalMin = 10000000000;
-	var migrationData = new Map();
 
 	function parseData( data ) {
 
@@ -301,7 +372,10 @@ void main() {
 		// country_flow_1990, country_flow_1995, country_flow_2000, country_flow_2005
 		// metadata
 
+		var inMap = new Map();
+		var outMap = new Map();
 		var inData = CSVToArray( data, ',' )
+		var outData = CSVToArray( data, ',' )
 		//addUI();
 
 		inData.forEach( s => {
@@ -316,9 +390,21 @@ void main() {
 			s[ 14 ] = parseInt( s[ 14 ], 10 );
 			s[ 15 ] = parseInt( s[ 15 ], 10 );
 
+			if( !inMap.has( s[ 5 ] ) ) {
+				inMap.set( s[ 5 ], new Map() );
+			}
+			inMap.get( s[ 5 ] ).set( s[ 7 ], s[ 15 ] );
+
+			if( !outMap.has( s[ 7 ] ) ) {
+				outMap.set( s[ 7 ], new Map() );
+			}
+			outMap.get( s[ 7 ] ).set( s[ 5 ], s[ 15 ] );
+
 			//console.log( s[ 0 ], s[ 1 ], ' | ', s[ 2 ], s[ 3 ], ' - ', s[ 4 ], s[ 5 ], ' | ', s[ 6 ], s[ 7 ] );
 
 		} );
+
+		return [ inMap, outMap ];
 
 	}
 
@@ -377,7 +463,7 @@ void main() {
 		var geometry = new THREE.Geometry();
 
 		s.calculateDistances();
-		s.reticulate( { distancePerStep: .2 } );
+		s.reticulate( { distancePerStep: .4 } );
 
 	 	var geometry = new THREE.BufferGeometry();
 
@@ -416,11 +502,102 @@ void main() {
 
 	}
 
+	var lineInMaterial = new THREE.MeshBasicMaterial( {
+		color: 0xffba00,
+		opacity: .5,
+		transparent: true,
+		side: THREE.DoubleSide,
+		wireframe: !true
+	} );
+
+	var lineOutMaterial = new THREE.MeshBasicMaterial( {
+		color: 0x00ff72,
+		opacity: .5,
+		transparent: true,
+		side: THREE.DoubleSide,
+		wireframe: !true
+	} );
+
+	function createConnections( country ) {
+
+		var from = countriesData.get( country ).latlng;
+
+		inData.get( country ).forEach( ( amount, toCountry ) => {
+
+			var c = countriesData.get( toCountry );
+			if( c ) {
+				var to = c.latlng;
+				var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, amount / 1000000 );
+				var line = new THREE.Mesh( g, lineInMaterial );
+				world.add( line );
+			} else {
+				console.log( 'Missing country ', toCountry );
+			}
+
+		} );
+
+		outData.get( country ).forEach( ( amount, toCountry ) => {
+
+			var c = countriesData.get( toCountry );
+			if( c ) {
+				var to = c.latlng;
+				var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, amount / 1000000 );
+				var line = new THREE.Mesh( g, lineOutMaterial );
+				world.add( line );
+			} else {
+				console.log( 'Missing country ', toCountry );
+			}
+
+		} );
+
+		invalidate = true;
+
+		/*
+		var to = countriesData.get( 'FRA' ).latlng;
+		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
+
+		var line = new THREE.Mesh( g, material );
+		world.add( line );
+
+		var from = countriesData.get( 'USA' ).latlng;
+		var to = countriesData.get( 'ESP' ).latlng;
+		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
+
+		var line = new THREE.Mesh( g, material );
+		world.add( line );
+
+		var from = countriesData.get( 'USA' ).latlng;
+		var to = countriesData.get( 'PRT' ).latlng;
+		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
+
+		var line = new THREE.Mesh( g, material );
+		world.add( line );*/
+
+	}
 
 	function buildMap() {
 
 		var material = new THREE.LineBasicMaterial( { linewidth: 1 });
 		var min = 10000000, max = -10000000;
+
+		var lines = 0;
+		mapData.forEach( ( territory, id ) => {
+
+			territory.forEach( path => {
+
+				path.lines.forEach( line => {
+
+					lines += line.length;
+
+				} );
+
+			} );
+
+		} );
+
+		var lineGeometry = new THREE.BufferGeometry();
+		var positions = new Float32Array( lines * 2 * 3 );
+		var ptr = 0;
 
 		mapData.forEach( ( territory, id ) => {
 
@@ -454,12 +631,9 @@ void main() {
 					var mesh = new THREE.Mesh( line.geometry, material );
 					scene.add( mesh );*/
 
-					var geometry = new THREE.BufferGeometry();
-					var positions = new Float32Array( line.length * 3 );
-					var ptr = 0;
+					for( var j = 0; j < line.length - 1; j++ ) {
 
-					line.forEach( p => {
-
+						var p = line[ j ];
 						if( p.y < min ) min = p.y;
 						if( p.y > max ) max = p.x;
 
@@ -471,15 +645,17 @@ void main() {
 
 						ptr += 3;
 
-					} );
+						var p = line[ j + 1 ];
 
-					geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+						var res = latLngToVec3( p.y, p.x );
 
-					geometry.computeBoundingSphere();
+						positions[ ptr ] = res.x;
+						positions[ ptr + 1 ] = res.y;
+						positions[ ptr + 2 ] = res.z;
 
-					var mesh = new THREE.Line( geometry, material );
-					mesh.fustrumCulled = false;
-					world.add( mesh );
+						ptr += 3;
+
+					}
 
 					var capital = countriesData.get( id );
 					if( capital ) {
@@ -509,41 +685,21 @@ void main() {
 
 		} );
 
-		var from = countriesData.get( 'USA' ).latlng;
-		var to = countriesData.get( 'FRA' ).latlng;
-		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
+		lineGeometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
 
-		var material = new THREE.MeshBasicMaterial( {
-			color: 0xff00ff,
-			opacity: 1,
-			transparent: false,
-			side: THREE.DoubleSide,
-			wireframe: !true
-		} );
+		lineGeometry.computeBoundingSphere();
 
-		var line = new THREE.Mesh( g, material );
-		world.add( line );
-
-		var from = countriesData.get( 'USA' ).latlng;
-		var to = countriesData.get( 'ESP' ).latlng;
-		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
-
-		var line = new THREE.Mesh( g, material );
-		world.add( line );
-
-		var from = countriesData.get( 'USA' ).latlng;
-		var to = countriesData.get( 'PRT' ).latlng;
-		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
-
-		var line = new THREE.Mesh( g, material );
-		world.add( line );
+		var mesh = new THREE.LineSegments( lineGeometry, material );
+		mesh.fustrumCulled = false;
+		world.add( mesh );
 
 		invalidate = true;
+
+		createConnections( 'GBR' );
 
 		/*var exporter = new THREE.OBJExporter();
 		var result = exporter.parse( scene );
 
-		var exporter = new THREE.OBJExporter( );
 		var blobModel = new Blob( [ result ], { type: 'text/plain' } );
 		var url = URL.createObjectURL( blobModel );
 
@@ -569,7 +725,7 @@ void main() {
 
 		var mesh = new THREE.Mesh( geometry, material );
 		mesh.scale.x = -1
-		//scene.add( mesh );
+		scene.add( mesh );
 
 	}
 
