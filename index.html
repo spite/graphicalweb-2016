@@ -12,11 +12,15 @@
 	<style>
 		*{box-sizing: border-box; margin: 0; padding: 0; }
 		body{ overflow: hidden; }
+		#container{ position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
 	</style>
 </head>
 <body>
 
 <ul id="states" ></ul>
+<div id="container"></div>
+
+</body>
 
 <script src="js/three.js"></script>
 <script src="js/OrbitControls.js"></script>
@@ -29,10 +33,44 @@
 <script src="js/WebVR.js"></script>
 <script src="js/VREffect.js"></script>
 <script src="js/VRControls.js"></script>
+<script src="js/THREE.FBOHelper.js"></script>
 
-<script src="Wagner/Wagner.js"></script>
-<script src="Wagner/Wagner.base.js"></script>
-<script src="Wagner/ShaderLoader.js"></script>
+<script id="line-vs" type="x-shader/x-vertex" >
+
+precision highp float;
+
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec2 vUv;
+
+void main() {
+
+	vUv = uv;
+
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+
+}
+
+</script>
+
+<script id="line-fs" type="x-shader/x-fragment" >
+precision highp float;
+
+uniform vec3 color;
+uniform float opacity;
+
+varying vec2 vUv;
+
+void main() {
+
+	gl_FragColor = vec4( color, opacity );
+
+}
+</script>
 
 <script id="floor-vs" type="x-shader/x-vertex" >
 precision highp float;
@@ -85,114 +123,58 @@ void main() {
 
 	'use strict'
 
-	WAGNER.vertexShadersPath = 'Wagner/vertex-shaders';
-	WAGNER.fragmentShadersPath = 'Wagner/fragment-shaders';
-	WAGNER.assetsPath = 'Wagner/assets/';
-
-	/*WAGNER.BokehPoisonPass = function() {
-
-		WAGNER.Pass.call( this );
-		WAGNER.log( 'BokehPoison Pass constructor' );
-		this.loadShader( 'bokeh-poison-dof-fs.glsl' );
-
-		this.params.amount = 10;
-		this.params.radius = 1;
-		this.params.tBias = null
-		this.params.focalDistance = 1;
-		this.params.aperture = 1;
-
-	};
-
-	WAGNER.BokehPoisonPass.prototype = Object.create( WAGNER.Pass.prototype );
-
-	WAGNER.BokehPoisonPass.prototype.run = function( c ) {
-
-		this.shader.uniforms.amount.value = this.params.amount;
-		this.shader.uniforms.radius.value = this.params.radius;
-		this.shader.uniforms.focalDistance.value = this.params.focalDistance;
-		this.shader.uniforms.aperture.value = this.params.aperture;
-		this.shader.uniforms.tBias.value = this.params.tBias;
-		c.pass( this.shader );
-
-	};*/
-
 	var effect;
 
+	var container = document.getElementById( 'container' );
+
 	var composer;
-	var FXAAPass, DOFPass, noisePass, rgbSplitPass;
+	var FXAAPass, noisePass, rgbSplitPass;
 	var raycaster = new THREE.Raycaster();
 	var centerVector = new THREE.Vector2( 0, 0 );
 
-	var focalDistance = 0;
-	var nFocalDistance = 0;
-
-	var scene, camera, controls, renderer, controls;
+	var scene, camera, hitCamera, controls, renderer;
+	var hitScene;
 	var map;
 	var raycaster = new THREE.Raycaster();
 	var light1, light2, helper;
-
-	var material = new THREE.MeshStandardMaterial( { color: 0xffffff, metalness: 1, roughness: .8 } );
-	//material = new THREE.MeshNormalMaterial();
-	var statesDiv = document.getElementById( 'states' );
-	var nTarget = new THREE.Vector3( 0, 0, 0 );
-	var nPosition = new THREE.Vector3( 0, 500, 100 );
-
-	var stateMeshes = {}
 
 	var depthMaterial = new THREE.MeshBasicMaterial();
 	var depthTexture = null;
 
 	var world = new THREE.Object3D();
+	var codes = new Map();
 
-	/*var sL = new ShaderLoader()
-	sL.add( 'depth-vs', 'bower_components/Wagner/vertex-shaders/packed-depth-vs.glsl' );
-	sL.add( 'depth-fs', 'bower_components/Wagner/fragment-shaders/packed-depth-fs.glsl' );
-	sL.load();
-	sL.onLoaded( function() {
-		depthMaterial = new THREE.ShaderMaterial( {
-			uniforms: {
-				mNear: { type: 'f', value: camera.near },
-				mFar: { type: 'f', value: camera.far }
-			},
-			vertexShader: this.get( 'depth-vs' ),
-			fragmentShader: this.get( 'depth-fs' ),
-			shading: THREE.SmoothShading,
-			side: THREE.DoubleSide
-		} );
-	} );*/
+	var hitTexture = new THREE.WebGLRenderTarget( 1,1  );
+	hitTexture.texture.minFilter = THREE.NearestFilter;
+	hitTexture.texture.magFilter = THREE.NearestFilter;
+	hitTexture.generateMipMaps = false;
+	hitTexture.flipY = true;
+
+	var hoveredCountry = null, currentCountry = null;
+
+	var fboHelper;
 
 	function init() {
 
 		scene = new THREE.Scene();
-		var aspectRatio = window.innerWidth / window.innerHeight;
-		camera = new THREE.PerspectiveCamera( 75, aspectRatio, .01, 3000 );
+		hitScene = new THREE.Scene();
+
+		camera = new THREE.PerspectiveCamera( 75, 1, .01, 3000 );
 		camera.target = new THREE.Vector3();
 		camera.position.set( 0, 0, 0.0001 );
-		//camera.position.set( 100, 100, 100 );
 
-		renderer = new THREE.WebGLRenderer( { antialias: true });
-		document.body.appendChild( renderer.domElement );
+		hitCamera = new THREE.PerspectiveCamera( .001, 1, .01, 3000 );
+
+		renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+		container.appendChild( renderer.domElement );
 		var pixelRatioScale = 1;
 		renderer.setPixelRatio( pixelRatioScale * window.devicePixelRatio );
 		renderer.setClearColor( 0 );
 
-		composer = new WAGNER.Composer( renderer, { useRGBA: false } );
-		//vignettePass = new WAGNER.Vignette2Pass();
-		//vignettePass.params.reduction = 2;
-		FXAAPass = new WAGNER.FXAAPass();
-		//DOFPass = new WAGNER.BokehPoisonPass();
-		//DOFPass.params.focalDistance = .5;
-		DOFPass = new WAGNER.DOFPass();
-		DOFPass.params.aperture = .1;
-		DOFPass.params.blurAmount = .1;
+		fboHelper = new FBOHelper( renderer );
+		fboHelper.attach( hitTexture, 'HitMap' );
 
-		noisePass = new WAGNER.NoisePass();
-		noisePass.params.amount = .01;
-
-		rgbSplitPass = new WAGNER.RGBSplitPass();
-		rgbSplitPass.params.delta.set( pixelRatioScale * 20, pixelRatioScale * 20 );
-
-		//controls = new THREE.OrbitControls( camera );
+		controls = new THREE.OrbitControls( camera, renderer.domElement );
 		controls = new THREE.VRControls( camera );
 
 		effect = new THREE.VREffect( renderer );
@@ -205,7 +187,7 @@ void main() {
 				controls.setVRDisplay( displays[ 0 ] );
 			} )
 			.catch( function () {
-							// no displays
+				// no displays
 			} );
 
 			document.body.appendChild( WEBVR.getButton( effect ) );
@@ -213,53 +195,18 @@ void main() {
 		}
 
 		scene.add( world );
-		//world.rotation.y = .1;
-		//world.rotation.x = Math.PI / 2;
-		//world.scale.x = -1;
 
 		window.addEventListener( 'resize', onWindowResize );
 
 		onWindowResize();
 
-		window.addEventListener( 'keydown', function( e ) {
-			/*if( e.keyCode == 32 ) {
-				startTime = Date.now();
-				audio.currentTime = 0;
-			}*/
+		container.addEventListener( 'mousedown', function( e ) {
+			if( hoveredCountry !== null ) {
+				currentCountry = hoveredCountry;
+				createConnections( currentCountry );
+			}
 		} )
 
-		var s = 2048;
-
-		light1 = new THREE.SpotLight( 0xffffff );
-		light1.position.set( -100, 300, -100 );
-		light1.penumbra = .25
-		scene.add( light1 );
-
-		light1.shadow.mapSize.width = s;
-		light1.shadow.mapSize.height = s;
-
-		light1.shadow.camera.near = 1;
-		light1.shadow.camera.far = 400;
-		light1.shadow.bias = -.0000025
-		light1.castShadow = true;
-
-		light2 = new THREE.SpotLight( 0xffffff );
-		light2.position.set( 300, 300, 100 );
-		light2.penumbra = .25
-		scene.add( light2 );
-
-		light2.shadow.mapSize.width = s;
-		light2.shadow.mapSize.height = s;
-
-		light2.shadow.camera.near = 1;
-		light2.shadow.camera.far = 400;
-		light2.shadow.bias = -.000005
-		light2.castShadow = true;
-
-		renderer.shadowMap.type = THREE.PCFSoftShadowMap
-		renderer.shadowMap.enabled = true;
-
-		render();
 		loadMap();
 
 	}
@@ -298,7 +245,7 @@ void main() {
 				.then( res => res.json() )
 				.then( res => createCountriesMap( res ) )
 				.then( res => countriesData = res )
-		] ).then( _ => buildMap() );
+		] ).then( _ => buildMap() ).then( _ => render() );
 
 	}
 
@@ -313,10 +260,7 @@ void main() {
 				l.setAttribute( 'fill', 'rgb(255,0,' + i + ')' );
 				l.setAttribute( 'stroke', 'rgb(255,0,' + i + ')' );
 				l.setAttribute( 'stroke-width', 0 );
-				/*codes[ i ] = {
-					id: l.getAttribute( 'id' ),
-					name: l.getAttribute( 'title' )
-				}*/
+				codes.set( i, l.parentNode.className.baseVal.replace( 'country ', '' ) );
 			} );
 			//var src = doc.children[ 0 ].outerHTML; // works on FF & Ch
 
@@ -344,7 +288,7 @@ void main() {
 					new THREE.IcosahedronGeometry( 5, 6 ),
 					new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } )
 				);
-				//scene.add( mesh );
+				hitScene.add( mesh );
 				mesh.scale.x = -1;
 
 				console.log( 'createworldmask' )
@@ -390,17 +334,25 @@ void main() {
 			s[ 14 ] = parseInt( s[ 14 ], 10 );
 			s[ 15 ] = parseInt( s[ 15 ], 10 );
 
+			if( s[ 15 ] > globalMax ) globalMax = s[ 15 ];
+			if( s[ 15 ] < globalMin ) globalMin = s[ 15 ]
+			//console.log( s[ 0 ], s[ 1 ], ' | ', s[ 2 ], s[ 3 ], ' - ', s[ 4 ], s[ 5 ], ' | ', s[ 6 ], s[ 7 ] );
+
+		} );
+
+		var globalRange = globalMax - globalMin;
+
+		inData.forEach( s => {
+
 			if( !inMap.has( s[ 5 ] ) ) {
 				inMap.set( s[ 5 ], new Map() );
 			}
-			inMap.get( s[ 5 ] ).set( s[ 7 ], s[ 15 ] );
+			inMap.get( s[ 5 ] ).set( s[ 7 ], ( s[ 15 ] - globalMin ) / globalRange );
 
 			if( !outMap.has( s[ 7 ] ) ) {
 				outMap.set( s[ 7 ], new Map() );
 			}
-			outMap.get( s[ 7 ] ).set( s[ 5 ], s[ 15 ] );
-
-			//console.log( s[ 0 ], s[ 1 ], ' | ', s[ 2 ], s[ 3 ], ' - ', s[ 4 ], s[ 5 ], ' | ', s[ 6 ], s[ 7 ] );
+			outMap.get( s[ 7 ] ).set( s[ 5 ], ( s[ 15 ] - globalMin ) / globalRange );
 
 		} );
 
@@ -463,7 +415,7 @@ void main() {
 		var geometry = new THREE.Geometry();
 
 		s.calculateDistances();
-		s.reticulate( { distancePerStep: .4 } );
+		s.reticulate( { distancePerStep: .3 } );
 
 	 	var geometry = new THREE.BufferGeometry();
 
@@ -502,23 +454,24 @@ void main() {
 
 	}
 
-	var lineInMaterial = new THREE.MeshBasicMaterial( {
-		color: 0xffba00,
-		opacity: .5,
+	var lineMaterial = new THREE.RawShaderMaterial( {
+		uniforms: {
+			color: { type: 'c', value: new THREE.Color( 0xffba00 ) },
+			opacity: { type: 'f', value: .5 },
+		},
 		transparent: true,
 		side: THREE.DoubleSide,
-		wireframe: !true
+		depthWrite: false,
+		vertexShader: document.getElementById( 'line-vs' ).textContent,
+		fragmentShader: document.getElementById( 'line-fs' ).textContent
 	} );
 
-	var lineOutMaterial = new THREE.MeshBasicMaterial( {
-		color: 0x00ff72,
-		opacity: .5,
-		transparent: true,
-		side: THREE.DoubleSide,
-		wireframe: !true
-	} );
+	var linesObject = new THREE.Object3D();
+	world.add( linesObject );
 
 	function createConnections( country ) {
+
+		while( linesObject.children.length ) linesObject.remove( linesObject.children[ 0 ] )
 
 		var from = countriesData.get( country ).latlng;
 
@@ -527,9 +480,11 @@ void main() {
 			var c = countriesData.get( toCountry );
 			if( c ) {
 				var to = c.latlng;
-				var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, amount / 1000000 );
-				var line = new THREE.Mesh( g, lineInMaterial );
-				world.add( line );
+				var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, 1 * amount );
+				var mat = lineMaterial.clone();
+				mat.uniforms.opacity.value = .5 + .5 * amount;
+				var line = new THREE.Mesh( g, mat );
+				linesObject.add( line );
 			} else {
 				console.log( 'Missing country ', toCountry );
 			}
@@ -541,9 +496,12 @@ void main() {
 			var c = countriesData.get( toCountry );
 			if( c ) {
 				var to = c.latlng;
-				var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, amount / 1000000 );
-				var line = new THREE.Mesh( g, lineOutMaterial );
-				world.add( line );
+				var g = join( { lat: to[ 0 ], lon: to[ 1 ] }, { lat: from[ 0 ], lon: from[ 1 ] }, 1 * amount );
+				var mat = lineMaterial.clone();
+				mat.uniforms.color.value.setHex( 0x00ff72 );
+				mat.uniforms.opacity.value = .5 + .5 * amount;
+				var line = new THREE.Mesh( g, mat );
+				linesObject.add( line );
 			} else {
 				console.log( 'Missing country ', toCountry );
 			}
@@ -551,27 +509,6 @@ void main() {
 		} );
 
 		invalidate = true;
-
-		/*
-		var to = countriesData.get( 'FRA' ).latlng;
-		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
-
-		var line = new THREE.Mesh( g, material );
-		world.add( line );
-
-		var from = countriesData.get( 'USA' ).latlng;
-		var to = countriesData.get( 'ESP' ).latlng;
-		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
-
-		var line = new THREE.Mesh( g, material );
-		world.add( line );
-
-		var from = countriesData.get( 'USA' ).latlng;
-		var to = countriesData.get( 'PRT' ).latlng;
-		var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, .1 );
-
-		var line = new THREE.Mesh( g, material );
-		world.add( line );*/
 
 	}
 
@@ -604,32 +541,6 @@ void main() {
 			territory.forEach( path => {
 
 				path.lines.forEach( line => {
-
-					/*var geometry = new THREE.Geometry();
-					line.forEach( p => {
-						var r = 100;
-						var v = p.x * 2 * Math.PI / 360;
-						var u = p.y * Math.PI / 180 + Math.PI / 2;
-						if( v < min ) min = v;
-						if( v > max ) max = v;
-						var x = r * Math.sin( u ) * Math.cos( v );
-						var y = r * Math.sin( u ) * Math.sin( v );
-						var z = r * Math.cos( u );
-						var vertex = new THREE.Vector3( x, y, z );
-						geometry.vertices.push( vertex );
-					} );
-
-					var line = new THREE.MeshLine();
-					line.setGeometry( geometry );
-
-					var material = new THREE.MeshLineMaterial( {
-						resolution: new THREE.Vector2( window.innerWidth, window.innerHeight ),
-						sizeAttenuation: true,
-						lineWidth: .1
-					});
-
-					var mesh = new THREE.Mesh( line.geometry, material );
-					scene.add( mesh );*/
 
 					for( var j = 0; j < line.length - 1; j++ ) {
 
@@ -705,7 +616,7 @@ void main() {
 
 		window.location = url;*/
 
-		var geometry = new THREE.IcosahedronGeometry( 5, 6 );
+		/*var geometry = new THREE.IcosahedronGeometry( 5, 6 );
 
 		var loader = new THREE.TextureLoader()
 		var heightMap = loader.load( 'assets/bathymetry_bw_composite_4k.jpg', _ => invalidate = true );
@@ -725,17 +636,41 @@ void main() {
 
 		var mesh = new THREE.Mesh( geometry, material );
 		mesh.scale.x = -1
-		scene.add( mesh );
+		scene.add( mesh );*/
 
 	}
 
 	var hash = null;
 	var invalidate = true;
+	var pixelBuffer = new Uint8Array( 4 );
 
 	function hashCamera() {
 
 		return `${camera.position.x}|${camera.position.y}|${camera.position.z}|${camera.rotation.x}|${camera.rotation.y}|${camera.rotation.z}`
 	}
+
+	var counter = 0;
+
+	function hitTest() {
+
+		performance.mark( 'start' );
+		renderer.readRenderTargetPixels( hitTexture, 0, 0, 1, 1, pixelBuffer );
+		if( pixelBuffer[ 3 ] === 255 ) {
+			if( pixelBuffer[ 0 ] === 255 ) {
+				hoveredCountry = codes.get( pixelBuffer[ 2 ] )
+				console.log( hoveredCountry );
+			}
+		} else {
+			hoveredCountry = null;
+		}
+		performance.mark( 'end' );
+		performance.measure( 'readpixels', 'start', 'end' );
+
+		renderer.render( hitScene, hitCamera, hitTexture );
+
+	}
+
+	window.addEventListener( 'vrdisplaypresentchange', _ => invalidate = true );
 
 	function render( timestamp ) {
 
@@ -746,51 +681,33 @@ void main() {
 			hash = newHash
 		}
 
-		/*raycaster.setFromCamera( centerVector, camera );
-		var intersects = raycaster.intersectObjects( scene.children, true );
-		if( intersects.length ) {
-			nFocalDistance = 1 - intersects[ 0 ].distance / ( camera.far - camera.near );
-		}*/
+		hitCamera.position.copy( camera.position );
+		hitCamera.rotation.copy( camera.rotation );
 
-		/*DOFPass.params.focalDistance += ( nFocalDistance -  DOFPass.params.focalDistance) * .1;
-
-		composer.reset();
-
-		scene.overrideMaterial = depthMaterial;
-		composer.render( scene, camera, null, depthTexture );
-		DOFPass.params.tBias = depthTexture;
-
-		scene.overrideMaterial = null;
-		composer.render( scene, camera );
-
-		composer.render( scene, camera );
-		composer.pass( FXAAPass );
-		composer.pass( rgbSplitPass );
-		composer.pass( DOFPass );
-		composer.pass( noisePass );
-
-		composer.toScreen();*/
-
-		//var time = - .001 * performance.now();
-		//world.rotation.z = time;
+		hitTest();
 
 		if( invalidate ) {
+
 			effect.render( scene, camera );
 			invalidate = false;
+
 		}
 
-		effect.requestAnimationFrame(render);
+		fboHelper.update();
+
+		effect.requestAnimationFrame( render );
 
 	}
 
 	function onWindowResize() {
 
-		effect.setSize( window.innerWidth, window.innerHeight );
-		camera.aspect = window.innerWidth / window.innerHeight;
+		effect.setSize( container.clientWidth, container.clientHeight );
+		camera.aspect = container.clientWidth / container.clientHeight;
 		camera.updateProjectionMatrix();
 
-		//composer.setSize( renderer.domElement.width, renderer.domElement.height );
-		//depthTexture = WAGNER.Pass.prototype.getOfflineTexture( composer.width, composer.height, false );
+		fboHelper.setSize( container.clientWidth, container.clientHeight );
+		hitTexture.setSize( 1, 1 );
+		fboHelper.refreshFBO( hitTexture );
 
 		invalidate = true;
 
@@ -799,5 +716,4 @@ void main() {
 	window.addEventListener( 'load', init );
 
 </script>
-</body>
 </html>
