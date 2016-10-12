@@ -15,7 +15,7 @@ function drawSVG( source ) {
 
 	return new Promise( function( resolve, reject ) {
 
-		var states = [];
+		var countries = new Map();
 
 	    var parser = new DOMParser();
 	    var doc = parser.parseFromString( source, "image/svg+xml");
@@ -25,7 +25,12 @@ function drawSVG( source ) {
 
 	    	if( p instanceof SVGPathElement && p.pathSegList ) {
 
-				var state = { id: p.id, lines: [] };
+	    		var countryCode = p.parentNode.className.baseVal.replace( 'country ', '' );
+	    		var countryId = p.parentNode.id;
+
+	    		//console.log( countryId, countryCode );
+
+				var territory = { id: p.id, lines: [] };
 	    		var line = []
 	    		var vertices = line.vertices;
 	    		var x, y;
@@ -54,7 +59,7 @@ function drawSVG( source ) {
 	                    ox = x;
 	                    oy = y;
 	                    // add line;
-	    				state.lines.push( line );
+	    				territory.lines.push( line );
 	    				line = []
 	                    line.push( new THREE.Vector2( x, y ) );
 	                }
@@ -93,7 +98,7 @@ function drawSVG( source ) {
 	                    //y = oy;
 	                    //line.push( new THREE.Vector2( x, y ) );
 	                    // add line
-	    				state.lines.push( line );
+	    				territory.lines.push( line );
 	    				line = []
 	                }
 
@@ -102,14 +107,19 @@ function drawSVG( source ) {
 
 	            }
 
-				state.lines = state.lines.filter( function( l ) { return l.length > 0 } )
-				states.push( state );
+				territory.lines = territory.lines.filter( function( l ) { return l.length > 0 } )
+				//countries.push( territory );
+
+				if( !countries.has( countryCode ) ) {
+	    			countries.set( countryCode, [] );
+	    		}
+				countries.get( countryCode ).push( territory );
 
 	    	}
 
 	    } );
 
-		resolve( states );
+		resolve( countries );
 
 	} )
 

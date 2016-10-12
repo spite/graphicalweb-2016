@@ -50,7 +50,7 @@ void main() {
 	vec4 c = texture2D( floorMap, uv );
 	vec3 dir = normalize( position );
 
-	gl_Position = projectionMatrix * modelViewMatrix * vec4( position + .1 * c.r * dir, 1. );
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position + 10. * c.r * dir, 1. );
 
 }
 
@@ -136,6 +136,8 @@ void main() {
 	var depthMaterial = new THREE.MeshBasicMaterial();
 	var depthTexture = null;
 
+	var world = new THREE.Object3D();
+
 	/*var sL = new ShaderLoader()
 	sL.add( 'depth-vs', 'bower_components/Wagner/vertex-shaders/packed-depth-vs.glsl' );
 	sL.add( 'depth-fs', 'bower_components/Wagner/fragment-shaders/packed-depth-fs.glsl' );
@@ -159,7 +161,8 @@ void main() {
 		var aspectRatio = window.innerWidth / window.innerHeight;
 		camera = new THREE.PerspectiveCamera( 75, aspectRatio, .01, 3000 );
 		camera.target = new THREE.Vector3();
-		camera.position.set( 100, 100, 100 );
+		camera.position.set( 0, 0, 0.0001 );
+		//camera.position.set( 100, 100, 100 );
 
 		renderer = new THREE.WebGLRenderer( { antialias: true });
 		document.body.appendChild( renderer.domElement );
@@ -184,7 +187,11 @@ void main() {
 		rgbSplitPass.params.delta.set( pixelRatioScale * 20, pixelRatioScale * 20 );
 
 		controls = new THREE.OrbitControls( camera );
-		controls.rotateSpeed = .2;
+
+		scene.add( world );
+		//world.rotation.y = .1;
+		//world.rotation.x = Math.PI / 2;
+		//world.scale.x = -1;
 
 		window.addEventListener( 'resize', onWindowResize );
 
@@ -229,17 +236,54 @@ void main() {
 		renderer.shadowMap.enabled = true;
 
 		render();
-		createMap();
+		loadMap();
 
 	}
 
-	function createMap() {
+	var countriesData, mapData;
 
-		create().then( res => {
+	function createCountriesMap( data ) {
 
-			var material = new THREE.LineBasicMaterial( );
+		countriesData = new Map();
 
-			res.forEach( path => {
+		data.forEach( c => {
+			countriesData.set( c.cca3, c );
+		} );
+
+	}
+
+	function loadMap() {
+
+		Promise.all( [
+			fetch( 'assets/countries.json' ).then( res => res.json() ).then( res => createCountriesMap( res ) ),
+			create().then( res => mapData = res )
+		] ).then( _ => buildMap() );
+
+	}
+
+	function latLngToVec3( lat, lon ) {
+
+		lat = Math.max( - 85, Math.min( 85, lat ) );
+		var phi = ( 90 - lat ) * Math.PI / 180;
+		var theta = ( 180 - lon ) * Math.PI / 180;
+		var d = 100;
+		var x = -d * Math.sin( phi ) * Math.cos( theta );
+		var y = d * Math.cos( phi );
+		var z = d * Math.sin( phi ) * Math.sin( theta );
+
+		return new THREE.Vector3( x, y, z );
+
+	}
+
+	function buildMap() {
+
+		var material = new THREE.LineBasicMaterial( { linewidth: 20 });
+		var min = 10000000, max = -10000000;
+
+		mapData.forEach( ( territory, id ) => {
+
+			territory.forEach( path => {
+
 				path.lines.forEach( line => {
 
 					/*var geometry = new THREE.Geometry();
@@ -274,17 +318,14 @@ void main() {
 
 					line.forEach( p => {
 
-						var v = p.x * 2 * Math.PI / 360;
-						var u = p.y * Math.PI / 180 + Math.PI / 2;
+						if( p.y < min ) min = p.y;
+						if( p.y > max ) max = p.x;
 
-						var r = 100;
-						var x = r * Math.sin( u ) * Math.cos( v );
-						var y = r * Math.sin( u ) * Math.sin( v );
-						var z = r * Math.cos( u );
+						var res = latLngToVec3( p.y, p.x );
 
-						positions[ ptr ] = x;
-						positions[ ptr + 1 ] = y;
-						positions[ ptr + 2 ] = z;
+						positions[ ptr ] = res.x;
+						positions[ ptr + 1 ] = res.y;
+						positions[ ptr + 2 ] = res.z;
 
 						ptr += 3;
 
@@ -295,7 +336,22 @@ void main() {
 					geometry.computeBoundingSphere();
 
 					var mesh = new THREE.Line( geometry, material );
-					scene.add( mesh );
+					world.add( mesh );
+
+					var capital = countriesData.get( id );
+					if( capital ) {
+
+						var res = latLngToVec3( capital.latlng[ 0 ], capital.latlng[ 1 ] );
+
+						var sphere = new THREE.Mesh(
+							new THREE.BoxBufferGeometry( 1, 1, 1 ),
+							new THREE.MeshBasicMaterial( { color: 0x0ff00ff })
+						)
+						sphere.position.copy( res );
+						world.add( sphere );
+					} else {
+						console.log( id + ' not found')
+					}
 
 					/*var shape = new THREE.Shape( line );
 
@@ -308,24 +364,48 @@ void main() {
 
 			} );
 
-			/*var exporter = new THREE.OBJExporter();
-			var result = exporter.parse( scene );
-
-			var exporter = new THREE.OBJExporter( );
-			var blobModel = new Blob( [ result ], { type: 'text/plain' } );
-			var url = URL.createObjectURL( blobModel );
-
-			window.location = url;*/
-
 		} );
 
-		var geometry = new THREE.IcosahedronGeometry( 100, 4 );
-		var material = new THREE.MeshBasicMaterial( { color: 0, opacity: .75, transparent: true, polygonOffset: true,
+		console.log( min, max );
+
+		invalidate = true;
+
+		/*var exporter = new THREE.OBJExporter();
+		var result = exporter.parse( scene );
+
+		var exporter = new THREE.OBJExporter( );
+		var blobModel = new Blob( [ result ], { type: 'text/plain' } );
+		var url = URL.createObjectURL( blobModel );
+
+		window.location = url;*/
+
+		var geometry = new THREE.IcosahedronGeometry( 99, 4 );
+		var material = new THREE.MeshBasicMaterial( { color: 0, opacity: .75, transparent: true, polygonOffset: false,
 polygonOffsetFactor: 10 } );
 		var mesh = new THREE.Mesh( geometry, material );
-		scene.add( mesh );
+		//scene.add( mesh );
 
-		/*var geometry = new THREE.IcosahedronGeometry( 1, 1 );
+//		var geometry = new THREE.SphereGeometry( 110, 36, 36 );
+		var geometry = new THREE.IcosahedronGeometry( 110, 6 );
+
+		/*for ( var i = 0, l = geometry.faceVertexUvs[ 0 ].length; i < l; i ++ ) {
+
+			for ( var j = 0, jl = geometry.faceVertexUvs[ 0 ][ i ].length; j < jl; j ++ ) {
+
+				var uv = geometry.faceVertexUvs[ 0 ][ i ][ j ];
+
+				var a = uv.y * Math.PI - Math.PI / 2;
+				a = Math.sin(a);
+				uv.y = 0.5 - Math.log( ( 1 + a ) / ( 1 - a ) ) / ( 4 * Math.PI );
+				uv.y = 1 - uv.y;
+				uv.x = 1 - uv.x;
+
+			}
+
+		}
+
+		geometry.uvsNeedUpdate = true;*/
+
 		var material = new THREE.RawShaderMaterial( {
 			uniforms: {
 				diffuseMap: { type: 't', value: THREE.ImageUtils.loadTexture( 'assets/bathymetry_diffuse_4k.jpg' ) },
@@ -338,13 +418,27 @@ polygonOffsetFactor: 10 } );
 		} );
 
 		var mesh = new THREE.Mesh( geometry, material );
-		scene.add( mesh );*/
+		mesh.scale.x = -1
+		scene.add( mesh );
 
+	}
+
+	var hash = null;
+	var invalidate = true;
+
+	function hashCamera() {
+
+		return `${camera.position.x}|${camera.position.y}|${camera.position.z}|${camera.rotation.x}|${camera.rotation.y}|${camera.rotation.z}`
 	}
 
 	function render( timestamp ) {
 
 		controls.update();
+		var newHash = hashCamera();
+		if( hash != newHash ){
+			invalidate = true;
+			hash = newHash
+		}
 
 		/*raycaster.setFromCamera( centerVector, camera );
 		var intersects = raycaster.intersectObjects( scene.children, true );
@@ -371,7 +465,13 @@ polygonOffsetFactor: 10 } );
 
 		composer.toScreen();*/
 
-		renderer.render( scene, camera );
+		//var time = - .001 * performance.now();
+		//world.rotation.z = time;
+
+		if( invalidate ) {
+			renderer.render( scene, camera );
+			invalidate = false;
+		}
 
 		requestAnimationFrame(render);
 
@@ -383,8 +483,10 @@ polygonOffsetFactor: 10 } );
 		camera.aspect = window.innerWidth / window.innerHeight;
 		camera.updateProjectionMatrix();
 
-		composer.setSize( renderer.domElement.width, renderer.domElement.height );
-		depthTexture = WAGNER.Pass.prototype.getOfflineTexture( composer.width, composer.height, false );
+		//composer.setSize( renderer.domElement.width, renderer.domElement.height );
+		//depthTexture = WAGNER.Pass.prototype.getOfflineTexture( composer.width, composer.height, false );
+
+		invalidate = true;
 
 	}
 
