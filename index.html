@@ -34,6 +34,8 @@
 <script src="js/VREffect.js"></script>
 <script src="js/VRControls.js"></script>
 <script src="js/THREE.FBOHelper.js"></script>
+<script src="js/ViveController.js"></script>
+<script src="js/OBJLoader.js"></script>
 
 <script id="text-vertex-shader" type="x-shader/x-vertex" >
 #define MAX 32
@@ -263,6 +265,8 @@ void main() {
 
 	var fboHelper;
 
+	var controller1, controller2;
+
 	function init() {
 
 		scene = new THREE.Scene();
@@ -291,8 +295,8 @@ void main() {
 		fboHelper = new FBOHelper( renderer );
 		fboHelper.attach( hitTexture, 'HitMap' );
 
-		controls = new THREE.OrbitControls( camera, renderer.domElement );
-		//controls = new THREE.VRControls( camera );
+		//controls = new THREE.OrbitControls( camera, renderer.domElement );
+		controls = new THREE.VRControls( camera );
 
 		effect = new THREE.VREffect( renderer );
 
@@ -310,6 +314,36 @@ void main() {
 			document.body.appendChild( WEBVR.getButton( effect ) );
 
 		}
+
+		scene.add( new THREE.HemisphereLight( 0x606060, 0x404040 ) );
+
+		var light = new THREE.DirectionalLight( 0xffffff );
+		light.position.set( 1, 1, 1 ).normalize();
+		scene.add( light );
+
+		controller1 = new THREE.ViveController( 0 );
+		controller1.standingMatrix = controls.getStandingMatrix();
+		scene.add( controller1 );
+
+		controller2 = new THREE.ViveController( 1 );
+		controller2.standingMatrix = controls.getStandingMatrix();
+		scene.add( controller2 );
+
+		var loader = new THREE.OBJLoader();
+		loader.setPath( 'assets/' );
+		loader.load( 'vr_controller_vive_1_5.obj', function ( object ) {
+
+			var loader = new THREE.TextureLoader();
+			loader.setPath( 'assets/' );
+
+			var controller = object.children[ 0 ];
+			controller.material.map = loader.load( 'onepointfive_texture.png' );
+			controller.material.specularMap = loader.load( 'onepointfive_spec.png' );
+
+			controller1.add( object.clone() );
+			controller2.add( object.clone() );
+
+		} );
 
 		scene.add( world );
 
@@ -864,10 +898,15 @@ void main() {
 
 	var fade = 0;
 	var nFade = 0;
+	var previousTime = 0;
 
 	function render( timestamp ) {
 
+		controller1.update();
+		controller2.update();
+
 		controls.update();
+
 		var newHash = hashCamera();
 		if( hash != newHash ){
 			invalidate = true;
@@ -877,7 +916,10 @@ void main() {
 		hitCamera.position.copy( camera.position );
 		hitCamera.rotation.copy( camera.rotation );
 
-		fade += ( nFade - fade ) * .01;
+		var time = performance.now();
+		var dt = ( time - previousTime ) / 1000000;
+		//fade += ( nFade - fade ) * .01;
+		fade = nFade + (fade - nFade) * ( Math.pow( .01, 60 * dt ) );
 
 		var t = performance.now();
 		linesObject.children.forEach( l => {
@@ -895,6 +937,8 @@ void main() {
 		fboHelper.update();
 
 		effect.requestAnimationFrame( render );
+
+		previousTime = time;
 
 	}
 
