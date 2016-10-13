@@ -26,7 +26,6 @@
 <script src="js/OrbitControls.js"></script>
 <script src="js/pathseg.js"></script>
 <script src="js/MapMesh.js"></script>
-<script src="js/THREE.MeshLine.js"></script>
 <script src="js/OBJExporter.js"></script>
 <script src="js/CSVToArray.js"></script>
 <script src="js/THREE.ConstantSpline.js"></script>
@@ -62,12 +61,17 @@ precision highp float;
 
 uniform vec3 color;
 uniform float opacity;
+uniform float time;
+uniform float direction;
+uniform float width;
 
 varying vec2 vUv;
 
 void main() {
 
-	gl_FragColor = vec4( color, opacity );
+	float c = direction * mod( - .001 * time + abs( .5 - vUv.y ) - mod( vUv.x * 2., 1. ), 1. );
+
+	gl_FragColor = vec4( color, .5 + .5 * c );
 
 }
 </script>
@@ -123,6 +127,45 @@ void main() {
 
 	'use strict'
 
+	var regions = {
+		'Africa': { color: new THREE.Color( 0xfec92e ) },
+		'Latin America': { color: new THREE.Color( 0xfec92e ) },
+		'North America': { color: new THREE.Color( 0xcb3e1a ) },
+		'West Asia': { color: new THREE.Color( 0xb41174 ) },
+		'South Asia': { color: new THREE.Color( 0x245aa3 ) },
+		'East Asia': { color: new THREE.Color( 0x18a492 ) },
+		'South-East Asia': { color: new THREE.Color( 0x159c41 ) },
+		'Former Soviet Union': { color: new THREE.Color( 0x674290 ) },
+		'Europe': { color: new THREE.Color( 0x6fac34 ) },
+		'Oceania': { color: new THREE.Color( 0x3b8874 ) },
+	};
+
+	var subregions = {
+		'Australia and New Zealand': 'Oceania',
+		'Caribbean': 'Latin America',
+		'Central America': 'Latin America',
+		'Central Asia': 'Former Soviet Union',
+		'Central Europe': 'Europe',
+		'Eastern Africa': 'Africa',
+		'Eastern Asia': 'East Asia',
+		'Eastern Europe': 'Former Soviet Union',
+		'Melanesia': 'Oceania',
+		'Micronesia': 'Oceania',
+		'Middle Africa': 'Africa',
+		'Northern Africa': 'Africa',
+		'Northern America': 'North America',
+		'Northern Europe': 'Europe',
+		'Polynesia': 'Oceania',
+		'South America': 'Latin America',
+		'South-Eastern Asia': 'South-East Asia',
+		'Southern Africa': 'Africa',
+		'Southern Asia': 'South Asia',
+		'Southern Europe': 'Europe',
+		'Western Africa': 'Africa',
+		'Western Asia': 'West Asia',
+		'Western Europe': 'Europe'
+	}
+
 	var effect;
 
 	var container = document.getElementById( 'container' );
@@ -174,7 +217,7 @@ void main() {
 		fboHelper = new FBOHelper( renderer );
 		fboHelper.attach( hitTexture, 'HitMap' );
 
-		controls = new THREE.OrbitControls( camera, renderer.domElement );
+		//controls = new THREE.OrbitControls( camera, renderer.domElement );
 		controls = new THREE.VRControls( camera );
 
 		effect = new THREE.VREffect( renderer );
@@ -201,6 +244,7 @@ void main() {
 		onWindowResize();
 
 		container.addEventListener( 'mousedown', function( e ) {
+			hitTest();
 			if( hoveredCountry !== null ) {
 				currentCountry = hoveredCountry;
 				createConnections( currentCountry );
@@ -336,7 +380,6 @@ void main() {
 
 			if( s[ 15 ] > globalMax ) globalMax = s[ 15 ];
 			if( s[ 15 ] < globalMin ) globalMin = s[ 15 ]
-			//console.log( s[ 0 ], s[ 1 ], ' | ', s[ 2 ], s[ 3 ], ' - ', s[ 4 ], s[ 5 ], ' | ', s[ 6 ], s[ 7 ] );
 
 		} );
 
@@ -344,15 +387,15 @@ void main() {
 
 		inData.forEach( s => {
 
-			if( !inMap.has( s[ 5 ] ) ) {
-				inMap.set( s[ 5 ], new Map() );
+			if( !outMap.has( s[ 5 ] ) ) {
+				outMap.set( s[ 5 ], new Map() );
 			}
-			inMap.get( s[ 5 ] ).set( s[ 7 ], ( s[ 15 ] - globalMin ) / globalRange );
+			outMap.get( s[ 5 ] ).set( s[ 7 ], ( s[ 15 ] - globalMin ) / globalRange );
 
-			if( !outMap.has( s[ 7 ] ) ) {
-				outMap.set( s[ 7 ], new Map() );
+			if( !inMap.has( s[ 7 ] ) ) {
+				inMap.set( s[ 7 ], new Map() );
 			}
-			outMap.get( s[ 7 ] ).set( s[ 5 ], ( s[ 15 ] - globalMin ) / globalRange );
+			inMap.get( s[ 7 ] ).set( s[ 5 ], ( s[ 15 ] - globalMin ) / globalRange );
 
 		} );
 
@@ -390,6 +433,21 @@ void main() {
 
 	}
 
+	function addUV( points, buffer, t ) {
+
+		for( var j = 0; j < points.length; j++ ) {
+
+			buffer[ t + 0 ] = points[ j ].x;
+			buffer[ t + 1 ] = points[ j ].y;
+
+			t += 2;
+
+		}
+
+		return t;
+
+	}
+
 	function join( a, b, w ) {
 
 		var from = latLngToVec3( a.lat, a.lon ),
@@ -415,13 +473,13 @@ void main() {
 		var geometry = new THREE.Geometry();
 
 		s.calculateDistances();
-		s.reticulate( { distancePerStep: .3 } );
+		s.reticulate( { distancePerStep: .2 } );
 
 	 	var geometry = new THREE.BufferGeometry();
 
 		var triangles = s.lPoints.length;
 		var positions = new Float32Array( triangles * 3 * 3 * 2 );
-		var colors = new Float32Array( triangles * 3 * 3 * 2 );
+		var uvs = new Float32Array( triangles * 3 * 2 * 2 );
 
 		var p0 = s.lPoints[ 0 ];
 		var p1 = s.lPoints[ s.lPoints.length - 1 ];
@@ -430,6 +488,15 @@ void main() {
 		var p = up.cross( d ).normalize();
 
 		var t = 0;
+		var t2 = 0;
+
+		var o = 0;//j / s.lPoints.length;
+		var i = 1;//1 / s.lPoints.length;
+		var ua = new THREE.Vector2( o, 0 );
+		var ub = new THREE.Vector2( o + i, 0 );
+		var uc = new THREE.Vector2( o, 1 );
+		var ud = new THREE.Vector2( o + i, 1 );
+
 		for( var j = 0; j < s.lPoints.length - 1; j++ ) {
 
 			var from = s.lPoints[ j ];
@@ -445,10 +512,13 @@ void main() {
 			t = addTriangle( [ a, b, c ], positions, t );
 			t = addTriangle( [ d, c, b ], positions, t );
 
+			t2 = addUV( [ ua, ub, uc ], uvs, t2 );
+			t2 = addUV( [ ud, uc, ub ], uvs, t2 );
+
 		}
 
 		geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
-		geometry.addAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
+		geometry.addAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
 
 		return geometry;
 
@@ -458,6 +528,9 @@ void main() {
 		uniforms: {
 			color: { type: 'c', value: new THREE.Color( 0xffba00 ) },
 			opacity: { type: 'f', value: .5 },
+			time: { type: 'f', value: 0 },
+			direction: { type: 'f', value: 0 },
+			width: { type: 'f', value: 0 }
 		},
 		transparent: true,
 		side: THREE.DoubleSide,
@@ -474,36 +547,47 @@ void main() {
 		while( linesObject.children.length ) linesObject.remove( linesObject.children[ 0 ] )
 
 		var from = countriesData.get( country ).latlng;
+		var w = .5;
+		var min = .01;
 
 		inData.get( country ).forEach( ( amount, toCountry ) => {
 
-			var c = countriesData.get( toCountry );
-			if( c ) {
-				var to = c.latlng;
-				var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, 1 * amount );
-				var mat = lineMaterial.clone();
-				mat.uniforms.opacity.value = .5 + .5 * amount;
-				var line = new THREE.Mesh( g, mat );
-				linesObject.add( line );
-			} else {
-				console.log( 'Missing country ', toCountry );
+			if( amount > min ) {
+				var c = countriesData.get( toCountry );
+				if( c ) {
+					var to = c.latlng;
+					var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, w * amount );
+					var mat = lineMaterial.clone();
+					mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
+					mat.uniforms.opacity.value = amount;
+					mat.uniforms.width.value = w * amount;
+					mat.uniforms.direction.value = -1;
+					var line = new THREE.Mesh( g, mat );
+					linesObject.add( line );
+				} else {
+					console.log( 'Missing country ', toCountry );
+				}
 			}
 
 		} );
 
 		outData.get( country ).forEach( ( amount, toCountry ) => {
 
-			var c = countriesData.get( toCountry );
-			if( c ) {
-				var to = c.latlng;
-				var g = join( { lat: to[ 0 ], lon: to[ 1 ] }, { lat: from[ 0 ], lon: from[ 1 ] }, 1 * amount );
-				var mat = lineMaterial.clone();
-				mat.uniforms.color.value.setHex( 0x00ff72 );
-				mat.uniforms.opacity.value = .5 + .5 * amount;
-				var line = new THREE.Mesh( g, mat );
-				linesObject.add( line );
-			} else {
-				console.log( 'Missing country ', toCountry );
+			if( amount > min ) {
+				var c = countriesData.get( toCountry );
+				if( c ) {
+					var to = c.latlng;
+					var g = join( { lat: to[ 0 ], lon: to[ 1 ] }, { lat: from[ 0 ], lon: from[ 1 ] }, w * amount );
+					var mat = lineMaterial.clone();
+					mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
+					mat.uniforms.opacity.value = amount;
+					mat.uniforms.width.value = w * amount;
+					mat.uniforms.direction.value = 1;
+					var line = new THREE.Mesh( g, mat );
+					linesObject.add( line );
+				} else {
+					console.log( 'Missing country ', toCountry );
+				}
 			}
 
 		} );
@@ -537,6 +621,8 @@ void main() {
 		var ptr = 0;
 
 		mapData.forEach( ( territory, id ) => {
+
+			var territoryGeometry = new THREE.BufferGeometry();
 
 			territory.forEach( path => {
 
@@ -583,13 +669,6 @@ void main() {
 						console.log( id + ' not found')
 					}
 
-					/*var shape = new THREE.Shape( line );
-
-					var geometry = new THREE.ExtrudeGeometry( shape, { amount: .1, steps: 1, bevelEnabled: false } );
-					var mesh = new THREE.Mesh(geometry, material);
-					scene.add( mesh );*/
-
-
 				})
 
 			} );
@@ -616,7 +695,7 @@ void main() {
 
 		window.location = url;*/
 
-		/*var geometry = new THREE.IcosahedronGeometry( 5, 6 );
+		var geometry = new THREE.IcosahedronGeometry( 5, 6 );
 
 		var loader = new THREE.TextureLoader()
 		var heightMap = loader.load( 'assets/bathymetry_bw_composite_4k.jpg', _ => invalidate = true );
@@ -636,7 +715,7 @@ void main() {
 
 		var mesh = new THREE.Mesh( geometry, material );
 		mesh.scale.x = -1
-		scene.add( mesh );*/
+		world.add( mesh );
 
 	}
 
@@ -684,12 +763,13 @@ void main() {
 		hitCamera.position.copy( camera.position );
 		hitCamera.rotation.copy( camera.rotation );
 
-		hitTest();
+		var t = performance.now();
+		linesObject.children.forEach( l => l.material.uniforms.time.value = t );
 
 		if( invalidate ) {
 
 			effect.render( scene, camera );
-			invalidate = false;
+			//invalidate = false;
 
 		}
 
