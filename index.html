@@ -123,14 +123,19 @@ uniform float opacity;
 uniform float time;
 uniform float direction;
 uniform float width;
+uniform float steps;
+uniform float fade;
 
 varying vec2 vUv;
 
 void main() {
 
-	float c = direction * mod( - .001 * time + abs( .5 - vUv.y ) - mod( vUv.x * 2., 1. ), 1. );
+	float p = 0.;
+	if( 1. - vUv.x < fade ) p = 1.;
 
-	gl_FragColor = vec4( color, .5 + .5 * c );
+	float c = direction * mod( - .001 * time + abs( .5 - vUv.y ) - mod( vUv.x * 2. * steps, 1. ), 1. );
+
+	gl_FragColor = vec4( color, p * ( .5 + .5 * c ) );
 
 }
 </script>
@@ -286,8 +291,8 @@ void main() {
 		fboHelper = new FBOHelper( renderer );
 		fboHelper.attach( hitTexture, 'HitMap' );
 
-		//controls = new THREE.OrbitControls( camera, renderer.domElement );
-		controls = new THREE.VRControls( camera );
+		controls = new THREE.OrbitControls( camera, renderer.domElement );
+		//controls = new THREE.VRControls( camera );
 
 		effect = new THREE.VREffect( renderer );
 
@@ -581,6 +586,13 @@ void main() {
 			t = addTriangle( [ a, b, c ], positions, t );
 			t = addTriangle( [ d, c, b ], positions, t );
 
+			o = j / s.lPoints.length;
+			i = 1 / s.lPoints.length;
+			ua.set( o, 0 );
+			ub.set( o + i, 0 );
+			uc.set( o, 1 );
+			ud.set( o + i, 1 );
+
 			t2 = addUV( [ ua, ub, uc ], uvs, t2 );
 			t2 = addUV( [ ud, uc, ub ], uvs, t2 );
 
@@ -589,7 +601,7 @@ void main() {
 		geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
 		geometry.addAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ) );
 
-		return geometry;
+		return [ geometry, s.lPoints.length ];
 
 	}
 
@@ -598,8 +610,10 @@ void main() {
 			color: { type: 'c', value: new THREE.Color( 0xffba00 ) },
 			opacity: { type: 'f', value: .5 },
 			time: { type: 'f', value: 0 },
+			fade: { type: 'f', value: 0 },
 			direction: { type: 'f', value: 0 },
-			width: { type: 'f', value: 0 }
+			width: { type: 'f', value: 0 },
+			steps: { type: 'f', value: 0 }
 		},
 		transparent: true,
 		side: THREE.DoubleSide,
@@ -612,6 +626,9 @@ void main() {
 	world.add( linesObject );
 
 	function createConnections( country ) {
+
+		fade = 0.;
+		nFade = 0.;
 
 		while( linesObject.children.length ) linesObject.remove( linesObject.children[ 0 ] )
 		countriesData.forEach( c => { if( c.label ) c.label.mesh.visible = false; } );
@@ -629,10 +646,11 @@ void main() {
 				if( c ) {
 					if( c.label ) c.label.mesh.visible = true;
 					var to = c.latlng;
-					var g = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, w * amount );
+					var [ g, d ] = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, w * amount );
 					var mat = lineMaterial.clone();
 					mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
 					mat.uniforms.opacity.value = amount;
+					mat.uniforms.steps.value = d;
 					mat.uniforms.width.value = w * amount;
 					mat.uniforms.direction.value = -1;
 					var line = new THREE.Mesh( g, mat );
@@ -651,10 +669,11 @@ void main() {
 				if( c ) {
 					if( c.label ) c.label.mesh.visible = true;
 					var to = c.latlng;
-					var g = join( { lat: to[ 0 ], lon: to[ 1 ] }, { lat: from[ 0 ], lon: from[ 1 ] }, w * amount );
+					var [ g, d ] = join( { lat: to[ 0 ], lon: to[ 1 ] }, { lat: from[ 0 ], lon: from[ 1 ] }, w * amount );
 					var mat = lineMaterial.clone();
 					mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
 					mat.uniforms.opacity.value = amount;
+					mat.uniforms.steps.value = d;
 					mat.uniforms.width.value = w * amount;
 					mat.uniforms.direction.value = 1;
 					var line = new THREE.Mesh( g, mat );
@@ -666,6 +685,7 @@ void main() {
 
 		} );
 
+		nFade = 1;
 		invalidate = true;
 
 	}
@@ -842,6 +862,9 @@ void main() {
 
 	window.addEventListener( 'vrdisplaypresentchange', _ => invalidate = true );
 
+	var fade = 0;
+	var nFade = 0;
+
 	function render( timestamp ) {
 
 		controls.update();
@@ -854,8 +877,13 @@ void main() {
 		hitCamera.position.copy( camera.position );
 		hitCamera.rotation.copy( camera.rotation );
 
+		fade += ( nFade - fade ) * .01;
+
 		var t = performance.now();
-		linesObject.children.forEach( l => l.material.uniforms.time.value = t );
+		linesObject.children.forEach( l => {
+			l.material.uniforms.time.value = t;
+			l.material.uniforms.fade.value = fade;
+		} );
 
 		if( invalidate ) {
 
