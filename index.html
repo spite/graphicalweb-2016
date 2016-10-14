@@ -193,7 +193,7 @@ void main() {
 
 	'use strict'
 
-	var regions = {
+	const regions = {
 		'Africa': { color: new THREE.Color( 0xfec92e ) },
 		'Latin America': { color: new THREE.Color( 0xfec92e ) },
 		'North America': { color: new THREE.Color( 0xcb3e1a ) },
@@ -206,7 +206,7 @@ void main() {
 		'Oceania': { color: new THREE.Color( 0x3b8874 ) },
 	};
 
-	var subregions = {
+	const subregions = {
 		'Australia and New Zealand': 'Oceania',
 		'Caribbean': 'Latin America',
 		'Central America': 'Latin America',
@@ -232,21 +232,23 @@ void main() {
 		'Western Europe': 'Europe'
 	};
 
-	var atlasRobotoCondensed;
+	const renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
 
-	var effect;
+	const atlasRobotoCondensed = new THREE.FontAtlas( {
+		renderer: renderer,
+		size: 160,
+		fontName: 'Roboto Condensed',
+		woffSrc: 'url(https://fonts.gstatic.com/s/robotocondensed/v13/Zd2E9abXLFGSr9G3YK2MsNxB8OB85xaNTJvVSB9YUjQ.woff)',
+		woff2Src: 'url(https://fonts.gstatic.com/s/robotocondensed/v13/Zd2E9abXLFGSr9G3YK2MsIPxuqWfQuZGbz5Rz4Zu1gk.woff2)'
+	} );;
 
-	var container = document.getElementById( 'container' );
+	const effect = new THREE.VREffect( renderer );
 
-	var composer;
-	var FXAAPass, noisePass, rgbSplitPass;
-	var raycaster = new THREE.Raycaster();
-	var centerVector = new THREE.Vector2( 0, 0 );
+	const container = document.getElementById( 'container' );
 
-	var scene, camera, hitCamera, controls, renderer;
+	var scene, camera, hitCamera, controls;
 	var hitScene;
 	var map;
-	var raycaster = new THREE.Raycaster();
 	var light1, light2, helper;
 
 	var depthMaterial = new THREE.MeshBasicMaterial();
@@ -255,7 +257,7 @@ void main() {
 	var world = new THREE.Object3D();
 	var codes = new Map();
 
-	var hitTexture = new THREE.WebGLRenderTarget( 1,1  );
+	var hitTexture = new THREE.WebGLRenderTarget( 1, 1 );
 	hitTexture.texture.minFilter = THREE.NearestFilter;
 	hitTexture.texture.magFilter = THREE.NearestFilter;
 	hitTexture.generateMipMaps = false;
@@ -271,21 +273,27 @@ void main() {
 	var globalMin = 10000000000;
 	var earthMesh;
 
-	var raycaster;
-	var tempMatrix = new THREE.Matrix4();
+	const raycaster = new THREE.Raycaster();
+	const tempMatrix = new THREE.Matrix4();
 
-	var pointer1, pointer2;
+	let counter = 0;
+	let hash = null;
+	const pixelBuffer = new Uint8Array( 4 );
+
+	let fade = 0;
+	let nFade = 0;
+	let previousTime = 0;
 
 	function onTriggerDown( event ) {
 
-		var controller = event.target;
+		const controller = event.target;
 
-		var intersections = getIntersections( controller );
+		const intersections = getIntersections( controller );
 
 		if ( intersections.length > 0 ) {
 
-			var intersection = intersections[ 0 ];
-			var res = hitTest( controller );
+			const intersection = intersections[ 0 ];
+			const res = hitTest( controller );
 			createConnections( res );
 
 		}
@@ -294,7 +302,7 @@ void main() {
 
 	function onTriggerUp( event ) {
 
-		var controller = event.target;
+		const controller = event.target;
 
 	}
 
@@ -311,16 +319,12 @@ void main() {
 
 	function intersectObjects( controller ) {
 
-		// Do not highlight when already selected
-
-		var line = controller.getObjectByName( 'line' );
-		var intersections = getIntersections( controller );
+		const line = controller.getObjectByName( 'line' );
+		const intersections = getIntersections( controller );
 
 		if ( intersections.length > 0 ) {
 
-			var intersection = intersections[ 0 ];
-
-			//controller.pointer.position.copy( intersection.point );
+			const intersection = intersections[ 0 ];
 
 			line.scale.z = intersection.distance;
 
@@ -343,19 +347,10 @@ void main() {
 
 		hitCamera = new THREE.PerspectiveCamera( .001, 1, .01, 3000 );
 
-		renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
 		container.appendChild( renderer.domElement );
 		var pixelRatioScale = 1;
 		renderer.setPixelRatio( pixelRatioScale * window.devicePixelRatio );
 		renderer.setClearColor( 0 );
-
-		atlasRobotoCondensed = new THREE.FontAtlas( {
-			renderer: renderer,
-			size: 160,
-			fontName: 'Roboto Condensed',
-			woffSrc: 'url(https://fonts.gstatic.com/s/robotocondensed/v13/Zd2E9abXLFGSr9G3YK2MsNxB8OB85xaNTJvVSB9YUjQ.woff)',
-			woff2Src: 'url(https://fonts.gstatic.com/s/robotocondensed/v13/Zd2E9abXLFGSr9G3YK2MsIPxuqWfQuZGbz5Rz4Zu1gk.woff2)'
-		} );
 
 		fboHelper = new FBOHelper( renderer );
 		fboHelper.attach( hitTexture, 'HitMap' );
@@ -363,18 +358,16 @@ void main() {
 		//controls = new THREE.OrbitControls( camera, renderer.domElement );
 		controls = new THREE.VRControls( camera );
 
-		effect = new THREE.VREffect( renderer );
-
 		if ( navigator.getVRDisplays ) {
 
 			navigator.getVRDisplays()
-			.then( function ( displays ) {
-				effect.setVRDisplay( displays[ 0 ] );
-				controls.setVRDisplay( displays[ 0 ] );
-			} )
-			.catch( function () {
-				// no displays
-			} );
+				.then( function ( displays ) {
+					effect.setVRDisplay( displays[ 0 ] );
+					controls.setVRDisplay( displays[ 0 ] );
+				} )
+				.catch( function () {
+					// no displays
+				} );
 
 			document.body.appendChild( WEBVR.getButton( effect ) );
 
@@ -400,16 +393,6 @@ void main() {
 		controller2.addEventListener( 'triggerdown', onTriggerDown );
 		controller2.addEventListener( 'triggerup', onTriggerUp );
 
-		/*var pointerGeometry = new THREE.IcosahedronGeometry( .1, 3 );
-		var pointerMaterial = new THREE.MeshBasicMaterial( { color: 0xff00ff } );
-		pointer1 = new THREE.Mesh( pointerGeometry, pointerMaterial );
-		pointer2 = new THREE.Mesh( pointerGeometry, pointerMaterial );
-		scene.add( pointer1 );
-		scene.add( pointer2 );
-
-		controller1.pointer = pointer1;
-		controller2.pointer = pointer2;*/
-
 		var lineGeometry = new THREE.Geometry();
 		lineGeometry.vertices.push( new THREE.Vector3( 0, 0, 0 ) );
 		lineGeometry.vertices.push( new THREE.Vector3( 0, 0, - 1 ) );
@@ -423,7 +406,7 @@ void main() {
 
 		var loader = new THREE.OBJLoader();
 		loader.setPath( 'assets/' );
-		loader.load( 'vr_controller_vive_1_5.obj', function ( object ) {
+		loader.load( 'vr_controller_vive_1_5.obj', object => {
 
 			var loader = new THREE.TextureLoader();
 			loader.setPath( 'assets/' );
@@ -443,7 +426,7 @@ void main() {
 
 		onWindowResize();
 
-		container.addEventListener( 'mousedown', function( e ) {
+		container.addEventListener( 'mousedown', e => {
 			if( hoveredCountry !== null ) {
 				currentCountry = hoveredCountry;
 
@@ -471,24 +454,24 @@ void main() {
 	function loadMap() {
 
 		Promise.all( [
-		    fetch( 'assets/BlankMap-Equirectangular.svg' )
-		    	.then( res => res.text() )
-		    	.then( res => {
-		    		return Promise.all( [
-		    			drawSVG( res )
-		    				.then( res => mapData = res ),
-		    			createWorldMask( res )
-		    		] )
-		    	} ),
-		    fetch( 'assets/data.csv' )
-		    	.then( res => res.text() )
-		    	.then( res => parseData( res ) )
-		    	.then( res => [ inData, outData ] = res ),
+			fetch( 'assets/BlankMap-Equirectangular.svg' )
+				.then( res => res.text() )
+				.then( res => {
+					return Promise.all( [
+						drawSVG( res )
+						.then( res => mapData = res ),
+						createWorldMask( res )
+						] )
+				} ),
+			fetch( 'assets/data.csv' )
+				.then( res => res.text() )
+				.then( res => parseData( res ) )
+				.then( res => [ inData, outData ] = res ),
 			fetch( 'assets/countries.json' )
 				.then( res => res.json() )
 				.then( res => createCountriesMap( res ) )
 				.then( res => countriesData = res )
-		] ).then( _ => buildMap() ).then( _ => render() );
+			] ).then( _ => buildMap() ).then( _ => render() );
 
 	}
 
@@ -496,38 +479,38 @@ void main() {
 
 		return new Promise( ( resolve, reject ) => {
 
-			var d = new DOMParser();
-			var doc = d.parseFromString( source, "image/svg+xml");
-			var countries = doc.querySelectorAll( '.country path' );
-			[].forEach.call( countries, function( l, i ) {
-				l.setAttribute( 'fill', 'rgb(255,0,' + i + ')' );
-				l.setAttribute( 'stroke', 'rgb(255,0,' + i + ')' );
+			const d = new DOMParser();
+			const doc = d.parseFromString( source, "image/svg+xml");
+			const countries = doc.querySelectorAll( '.country path' );
+			[].forEach.call( countries, ( l, i ) => {
+				l.setAttribute( 'fill', `rgb(255,0,${i})` );
+				l.setAttribute( 'stroke', `rgb(255,0,${i})` );
 				l.setAttribute( 'stroke-width', 0 );
 				codes.set( i, l.parentNode.className.baseVal.replace( 'country ', '' ) );
 			} );
 			//var src = doc.children[ 0 ].outerHTML; // works on FF & Ch
 
-			var oSerializer = new XMLSerializer();
-			var src = oSerializer.serializeToString(doc);
+			const oSerializer = new XMLSerializer();
+			const src = oSerializer.serializeToString(doc);
 
-			var img = new Image();
-			var svg = new Blob([ src ], {type: 'image/svg+xml;charset=utf-8'});
-			var DOMURL = window.URL || window.webkitURL || window;
-			var url = DOMURL.createObjectURL(svg);
+			const img = new Image();
+			const svg = new Blob([ src ], {type: 'image/svg+xml;charset=utf-8'});
+			const DOMURL = window.URL || window.webkitURL || window;
+			const url = DOMURL.createObjectURL(svg);
 
-			img.onload = function () {
+			img.addEventListener( 'load', _ => {
 
-				var canvas = document.createElement( 'canvas' );
-				var ctx = canvas.getContext( '2d' );
+				const canvas = document.createElement( 'canvas' );
+				const ctx = canvas.getContext( '2d' );
 				canvas.width = 4096;
 				canvas.height = 2048;
 				ctx.drawImage( img, 0, 0, img.width, img.height, 0, 0, canvas.width, canvas.height );
 				DOMURL.revokeObjectURL( url );
 
-				var texture = new THREE.Texture( canvas );
+				const texture = new THREE.Texture( canvas );
 				texture.needsUpdate = true;
 
-				var mesh = new THREE.Mesh(
+				const mesh = new THREE.Mesh(
 					new THREE.IcosahedronGeometry( 5, 6 ),
 					new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } )
 				);
@@ -537,7 +520,7 @@ void main() {
 				console.log( 'createworldmask' )
 				resolve();
 
-			}
+			} );
 
 			img.src = url;
 
@@ -556,10 +539,10 @@ void main() {
 		// country_flow_1990, country_flow_1995, country_flow_2000, country_flow_2005
 		// metadata
 
-		var inMap = new Map();
-		var outMap = new Map();
-		var inData = CSVToArray( data, ',' )
-		var outData = CSVToArray( data, ',' )
+		const inMap = new Map();
+		const outMap = new Map();
+		const inData = CSVToArray( data, ',' )
+		const outData = CSVToArray( data, ',' )
 		//addUI();
 
 		inData.forEach( s => {
@@ -602,12 +585,12 @@ void main() {
 	function latLngToVec3( lat, lon ) {
 
 		lat = Math.max( - 85, Math.min( 85, lat ) );
-		var phi = ( 90 - lat ) * Math.PI / 180;
-		var theta = ( 180 - lon ) * Math.PI / 180;
-		var d = 5;
-		var x = -d * Math.sin( phi ) * Math.cos( theta );
-		var y = d * Math.cos( phi );
-		var z = d * Math.sin( phi ) * Math.sin( theta );
+		const phi = ( 90 - lat ) * Math.PI / 180;
+		const theta = ( 180 - lon ) * Math.PI / 180;
+		const d = 5;
+		const x = -d * Math.sin( phi ) * Math.cos( theta );
+		const y = d * Math.cos( phi );
+		const z = d * Math.sin( phi ) * Math.sin( theta );
 
 		return new THREE.Vector3( x, y, z );
 
@@ -615,15 +598,15 @@ void main() {
 
 	function addTriangle( points, buffer, t ) {
 
-		for( var j = 0; j < points.length; j++ ) {
+		points.forEach( p => {
 
-			buffer[ t + 0 ] = points[ j ].x;
-			buffer[ t + 1 ] = points[ j ].y;
-			buffer[ t + 2 ] = points[ j ].z;
+			buffer[ t + 0 ] = p.x;
+			buffer[ t + 1 ] = p.y;
+			buffer[ t + 2 ] = p.z;
 
 			t += 3;
 
-		}
+		} );
 
 		return t;
 
@@ -631,14 +614,14 @@ void main() {
 
 	function addUV( points, buffer, t ) {
 
-		for( var j = 0; j < points.length; j++ ) {
+		points.forEach( p => {
 
-			buffer[ t + 0 ] = points[ j ].x;
-			buffer[ t + 1 ] = points[ j ].y;
+			buffer[ t + 0 ] = p.x;
+			buffer[ t + 1 ] = p.y;
 
 			t += 2;
 
-		}
+		} );
 
 		return t;
 
@@ -646,64 +629,61 @@ void main() {
 
 	function join( a, b, w ) {
 
-		var from = latLngToVec3( a.lat, a.lon ),
-			to = latLngToVec3( b.lat, b.lon );
+		const from = latLngToVec3( a.lat, a.lon );
+		const to = latLngToVec3( b.lat, b.lon );
 
-		var dir = to.clone().sub( from ).normalize();
-		var d = from.distanceTo( to );
+		const dir = to.clone().sub( from ).normalize();
+		const d = from.distanceTo( to );
 
-		var s = new THREE.ConstantSpline()
+		const s = new THREE.ConstantSpline()
 
 		s.p0 = from.clone();
 		s.p1 = from.clone().add( from.clone().normalize().multiplyScalar( -.5 * d ) );
 		s.p2 = to.clone().add( to.clone().normalize().multiplyScalar( -.5 * d ) );
 		s.p3 = to.clone();
 
-		var perpendicular = s.p1.clone().normalize().cross( dir );
+		const perpendicular = s.p1.clone().normalize().cross( dir );
 		perpendicular.normalize().multiplyScalar( .05 * d );
 		s.p1.add( perpendicular );
 		s.p2.add( perpendicular );
 
 		s.calculate();
-
-		var geometry = new THREE.Geometry();
-
 		s.calculateDistances();
 		s.reticulate( { distancePerStep: .2 } );
 
-	 	var geometry = new THREE.BufferGeometry();
+	 	const geometry = new THREE.BufferGeometry();
 
-		var triangles = s.lPoints.length;
-		var positions = new Float32Array( triangles * 3 * 3 * 2 );
-		var uvs = new Float32Array( triangles * 3 * 2 * 2 );
+		const triangles = s.lPoints.length;
+		const positions = new Float32Array( triangles * 3 * 3 * 2 );
+		const uvs = new Float32Array( triangles * 3 * 2 * 2 );
 
-		var p0 = s.lPoints[ 0 ];
-		var p1 = s.lPoints[ s.lPoints.length - 1 ];
-		var d = p1.clone().sub( p0 ).normalize();
-		var up = p0.clone().normalize();
-		var p = up.cross( d ).normalize();
+		const p0 = s.lPoints[ 0 ];
+		const p1 = s.lPoints[ s.lPoints.length - 1 ];
+		const dd = p1.clone().sub( p0 ).normalize();
+		const up = p0.clone().normalize();
+		const p = up.cross( dd ).normalize();
 
-		var t = 0;
-		var t2 = 0;
+		let t = 0;
+		let t2 = 0;
 
-		var o = 0;//j / s.lPoints.length;
-		var i = 1;//1 / s.lPoints.length;
-		var ua = new THREE.Vector2( o, 0 );
-		var ub = new THREE.Vector2( o + i, 0 );
-		var uc = new THREE.Vector2( o, 1 );
-		var ud = new THREE.Vector2( o + i, 1 );
+		let o = 0;//j / s.lPoints.length;
+		let i = 1;//1 / s.lPoints.length;
+		const ua = new THREE.Vector2( o, 0 );
+		const ub = new THREE.Vector2( o + i, 0 );
+		const uc = new THREE.Vector2( o, 1 );
+		const ud = new THREE.Vector2( o + i, 1 );
 
-		for( var j = 0; j < s.lPoints.length - 1; j++ ) {
+		for( let j = 0; j < s.lPoints.length - 1; j++ ) {
 
-			var from = s.lPoints[ j ];
-			var to = s.lPoints[ j + 1 ];
+			const from = s.lPoints[ j ];
+			const to = s.lPoints[ j + 1 ];
 
-			var pScaled1 = p.clone().multiplyScalar( j * w / s.lPoints.length );
-			var pScaled2 = p.clone().multiplyScalar( ( j + 1 ) * w / s.lPoints.length );
-			var a = from.clone().sub( pScaled1 );
-			var b = to.clone().sub( pScaled2 );
-			var c = from.clone().add( pScaled1 );
-			var d = to.clone().add( pScaled2 );
+			const pScaled1 = p.clone().multiplyScalar( j * w / s.lPoints.length );
+			const pScaled2 = p.clone().multiplyScalar( ( j + 1 ) * w / s.lPoints.length );
+			const a = from.clone().sub( pScaled1 );
+			const b = to.clone().sub( pScaled2 );
+			const c = from.clone().add( pScaled1 );
+			const d = to.clone().add( pScaled2 );
 
 			t = addTriangle( [ a, b, c ], positions, t );
 			t = addTriangle( [ d, c, b ], positions, t );
@@ -727,7 +707,7 @@ void main() {
 
 	}
 
-	var lineMaterial = new THREE.RawShaderMaterial( {
+	const lineMaterial = new THREE.RawShaderMaterial( {
 		uniforms: {
 			color: { type: 'c', value: new THREE.Color( 0xffba00 ) },
 			opacity: { type: 'f', value: .5 },
@@ -744,7 +724,7 @@ void main() {
 		fragmentShader: document.getElementById( 'line-fs' ).textContent
 	} );
 
-	var linesObject = new THREE.Object3D();
+	const linesObject = new THREE.Object3D();
 	world.add( linesObject );
 
 	function createConnections( country ) {
@@ -757,27 +737,27 @@ void main() {
 
 		if( country === null ) return;
 
-		var cty = countriesData.get( country );
+		const cty = countriesData.get( country );
 		cty.label.mesh.visible = true;
-		var from = cty.latlng;
-		var w = .5;
-		var min = .01;
+		const from = cty.latlng;
+		const w = .5;
+		const min = .01;
 
 		inData.get( country ).forEach( ( amount, toCountry ) => {
 
 			if( amount > min ) {
-				var c = countriesData.get( toCountry );
+				const c = countriesData.get( toCountry );
 				if( c ) {
 					if( c.label ) c.label.mesh.visible = true;
-					var to = c.latlng;
-					var [ g, d ] = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, w * amount );
-					var mat = lineMaterial.clone();
+					const to = c.latlng;
+					const [ g, d ] = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, w * amount );
+					const mat = lineMaterial.clone();
 					mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
 					mat.uniforms.opacity.value = amount;
 					mat.uniforms.steps.value = d;
 					mat.uniforms.width.value = w * amount;
 					mat.uniforms.direction.value = -1;
-					var line = new THREE.Mesh( g, mat );
+					const line = new THREE.Mesh( g, mat );
 					linesObject.add( line );
 				} else {
 					console.log( 'Missing country ', toCountry );
@@ -789,18 +769,18 @@ void main() {
 		outData.get( country ).forEach( ( amount, toCountry ) => {
 
 			if( amount > min ) {
-				var c = countriesData.get( toCountry );
+				const c = countriesData.get( toCountry );
 				if( c ) {
 					if( c.label ) c.label.mesh.visible = true;
-					var to = c.latlng;
-					var [ g, d ] = join( { lat: to[ 0 ], lon: to[ 1 ] }, { lat: from[ 0 ], lon: from[ 1 ] }, w * amount );
-					var mat = lineMaterial.clone();
+					const to = c.latlng;
+					const [ g, d ] = join( { lat: to[ 0 ], lon: to[ 1 ] }, { lat: from[ 0 ], lon: from[ 1 ] }, w * amount );
+					const mat = lineMaterial.clone();
 					mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
 					mat.uniforms.opacity.value = amount;
 					mat.uniforms.steps.value = d;
 					mat.uniforms.width.value = w * amount;
 					mat.uniforms.direction.value = 1;
-					var line = new THREE.Mesh( g, mat );
+					const line = new THREE.Mesh( g, mat );
 					linesObject.add( line );
 				} else {
 					console.log( 'Missing country ', toCountry );
@@ -810,17 +790,33 @@ void main() {
 		} );
 
 		nFade = 1;
-		invalidate = true;
 
 	}
 
 	function toASCII(s){
-		var r = s.toLowerCase();
-		var non_asciis = {'a': '[àáâãäå]', 'ae': 'æ', 'c': 'ç', 'e': '[èéêë]', 'i': '[ìíîï]', 'n': 'ñ', 'o': '[òóôõö]', 'oe': 'œ', 'u': '[ùúûűü]', 'y': '[ýÿ]'};
-		for ( var i in non_asciis) { r = r.replace(new RegExp(non_asciis[i], 'g'), i); }
-			return r;
-	};
 
+		let r = s.toLowerCase();
+
+		const non_asciis = {
+			'a': '[àáâãäå]',
+			'ae': 'æ',
+			'c': 'ç',
+			'e': '[èéêë]',
+			'i': '[ìíîï]',
+			'n': 'ñ',
+			'o': '[òóôõö]',
+			'oe': 'œ',
+			'u': '[ùúûűü]',
+			'y': '[ýÿ]'
+		};
+
+		for ( const i in non_asciis ) {
+			r = r.replace( new RegExp( non_asciis[ i ], 'g' ), i );
+		}
+
+		return r;
+
+	};
 
 	function buildMap() {
 
@@ -918,8 +914,6 @@ void main() {
 		mesh.fustrumCulled = false;
 		world.add( mesh );
 
-		invalidate = true;
-
 		/*var exporter = new THREE.OBJExporter();
 		var result = exporter.parse( scene );
 
@@ -931,8 +925,8 @@ void main() {
 		var geometry = new THREE.IcosahedronGeometry( 5, 6 );
 
 		var loader = new THREE.TextureLoader()
-		var heightMap = loader.load( 'assets/bathymetry_bw_composite_4k.jpg', _ => invalidate = true );
-		var diffuseMap = loader.load( 'assets/bathymetry_diffuse_4k.jpg', _ => invalidate = true );
+		var heightMap = loader.load( 'assets/bathymetry_bw_composite_4k.jpg' );
+		var diffuseMap = loader.load( 'assets/bathymetry_diffuse_4k.jpg' );
 
 		var material = new THREE.RawShaderMaterial( {
 			uniforms: {
@@ -952,20 +946,15 @@ void main() {
 
 	}
 
-	var hash = null;
-	var invalidate = true;
-	var pixelBuffer = new Uint8Array( 4 );
-
 	function hashCamera() {
 
 		return `${camera.position.x}|${camera.position.y}|${camera.position.z}|${camera.rotation.x}|${camera.rotation.y}|${camera.rotation.z}`
-	}
 
-	var counter = 0;
+	}
 
 	function hitTest( obj ) {
 
-		var res = null;
+		let res = null;
 
 		performance.mark( 'start' );
 
@@ -990,24 +979,12 @@ void main() {
 
 	}
 
-	window.addEventListener( 'vrdisplaypresentchange', _ => invalidate = true );
-
-	var fade = 0;
-	var nFade = 0;
-	var previousTime = 0;
-
 	function render( timestamp ) {
 
 		controller1.update();
 		controller2.update();
 
 		controls.update();
-
-		var newHash = hashCamera();
-		if( hash != newHash ){
-			invalidate = true;
-			hash = newHash
-		}
 
 		var time = performance.now();
 		var dt = ( time - previousTime ) / 1000000;
@@ -1020,12 +997,7 @@ void main() {
 			l.material.uniforms.fade.value = fade;
 		} );
 
-		if( invalidate ) {
-
-			effect.render( scene, camera );
-			//invalidate = false;
-
-		}
+		effect.render( scene, camera );
 
 		intersectObjects( controller1 );
 		intersectObjects( controller2 );
@@ -1047,8 +1019,6 @@ void main() {
 		fboHelper.setSize( container.clientWidth, container.clientHeight );
 		hitTexture.setSize( 1, 1 );
 		fboHelper.refreshFBO( hitTexture );
-
-		invalidate = true;
 
 	}
 
