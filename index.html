@@ -106,6 +106,7 @@ attribute vec2 uv;
 
 uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
+uniform float fadeOpacity;
 
 varying vec2 vUv;
 
@@ -129,6 +130,7 @@ uniform float direction;
 uniform float width;
 uniform float steps;
 uniform float fade;
+uniform float fadeOpacity;
 
 varying vec2 vUv;
 
@@ -139,7 +141,7 @@ void main() {
 
 	float c = direction * mod( - .001 * time + abs( .5 - vUv.y ) - mod( vUv.x * 2. * steps, 1. ), 1. );
 
-	gl_FragColor = vec4( color, p * ( .5 + .5 * c ) );
+	gl_FragColor = vec4( color, p * ( .5 + .5 * c ) * fadeOpacity );
 
 }
 </script>
@@ -185,7 +187,7 @@ void main() {
 
 	vec4 c = mix( vec4( 0., 119., 190., 255. ) / 255. * h.r, d, smoothstep( .45, .55, h.r ) );
 
-	gl_FragColor = vec4( .5 * c.rgb, 1. );
+	gl_FragColor = vec4( c.rgb, 1. );
 
 }
 
