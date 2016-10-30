@@ -301,6 +301,8 @@
                 widths: { type: 'fv1', value: [] },
                 lefts: { type: 'fv1', value: [] },
                 map: { type: 't', value: this.atlas.texture },
+                color: { type: 'c', value: new THREE.Color( 1,1,1 ) },
+                opacity: { type: 'f', value: 0 },
                 dimensions: { type: 'v3', value: new THREE.Vector3( this.atlas.texture.image.width, this.atlas.texture.image.height, this.atlas.size ) }
             },
             vertexShader: document.getElementById( 'text-vertex-shader' ).textContent,
@@ -308,7 +310,7 @@
             side: THREE.DoubleSide,
             wireframe: false,
             transparent: true,
-            depthWrite: false
+            depthWrite: false,
         } );
 
         this.mesh = new THREE.Mesh( this.geometry, this.material );
