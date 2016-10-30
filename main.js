@@ -43,6 +43,7 @@ const renderer = new THREE.WebGLRenderer( { antialias: true, preserveDrawingBuff
 var pixelRatioScale = 1;
 renderer.setPixelRatio( pixelRatioScale * window.devicePixelRatio );
 renderer.setClearColor( 0 );
+renderer.sortObjects = false;
 
 const atlasRobotoCondensed = new THREE.FontAtlas( {
 	renderer: renderer,
@@ -74,7 +75,6 @@ const hitTexture = new THREE.WebGLRenderTarget( 1, 1 );
 hitTexture.texture.minFilter = THREE.NearestFilter;
 hitTexture.texture.magFilter = THREE.NearestFilter;
 hitTexture.generateMipMaps = false;
-hitTexture.flipY = true;
 
 let hoveredCountry = null;
 let currentCountry = null;
@@ -96,7 +96,46 @@ const pixelBuffer = new Uint8Array( 4 );
 
 let fade = 0;
 let nFade = 0;
+let opacity = 1;
+let nOpacity = 1;
+let textOpacity = 0;
+let nTextOpacity = 0;
 let previousTime = 0;
+
+let isVR = false;
+let mouse = { x: 0, y: 0 };
+let hasMoved = false;
+
+function onMouseDown( event ) {
+
+	hasMoved = false;
+	mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+	mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+}
+
+function onMouseMove( event ) {
+
+	hasMoved = true;
+	mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+	mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+}
+
+var dummy = new THREE.Object3D();
+
+function onMouseUp( event ) {
+
+	if( !hasMoved ) {
+		raycaster.setFromCamera( mouse, camera );
+		var intersections = raycaster.intersectObject( earthMesh );
+		var p = intersections[ 0 ].point;
+		dummy.lookAt( p )
+		dummy.rotation.y += Math.PI;
+		hitTest( dummy ).then( res => selectCountry( res ) );
+	}
+
+}
 
 function onTriggerDown( event ) {
 
@@ -107,8 +146,7 @@ function onTriggerDown( event ) {
 	if ( intersections.length > 0 ) {
 
 		const intersection = intersections[ 0 ];
-		const res = hitTest( controller );
-		createConnections( res );
+		hitTest( controller ).then( res => selectCountry( res ) );
 
 	}
 
@@ -156,15 +194,66 @@ function init() {
 
 	fboHelper.attach( hitTexture, 'HitMap' );
 
-	//controls = new THREE.OrbitControls( camera, renderer.domElement );
-	controls = new THREE.VRControls( camera );
+	controls = new THREE.OrbitControls( camera, renderer.domElement );
 
 	if ( navigator.getVRDisplays ) {
 
 		navigator.getVRDisplays()
 			.then( function ( displays ) {
+
+				controls = new THREE.VRControls( camera );
+
 				effect.setVRDisplay( displays[ 0 ] );
 				controls.setVRDisplay( displays[ 0 ] );
+
+				scene.add( new THREE.HemisphereLight( 0x606060, 0x404040 ) );
+
+				var light = new THREE.DirectionalLight( 0xffffff );
+				light.position.set( 1, 1, 1 ).normalize();
+				scene.add( light );
+
+				var loader = new THREE.OBJLoader();
+				loader.setPath( 'assets/' );
+				loader.load( 'vr_controller_vive_1_5.obj', object => {
+
+					var loader = new THREE.TextureLoader();
+					loader.setPath( 'assets/' );
+
+					var controller = object.children[ 0 ];
+					controller.material.map = loader.load( 'onepointfive_texture.png' );
+					controller.material.specularMap = loader.load( 'onepointfive_spec.png' );
+
+					var lineGeometry = new THREE.Geometry();
+					lineGeometry.vertices.push( new THREE.Vector3( 0, 0, 0 ) );
+					lineGeometry.vertices.push( new THREE.Vector3( 0, 0, - 1 ) );
+
+					var line = new THREE.Line( lineGeometry );
+					line.name = 'line';
+					line.scale.z = 5;
+
+					function initController() {
+
+						const controller = new THREE.ViveController( 0 );
+						controller.standingMatrix = controls.getStandingMatrix();
+						scene.add( controller );
+
+						controller.addEventListener( 'triggerdown', onTriggerDown );
+						controller.addEventListener( 'triggerup', onTriggerUp );
+
+						controller.add( line.clone() );
+						controller.add( object.clone() );
+
+						return controller;
+
+					}
+
+					controller1 = initController();
+					controller2 = initController();
+
+					isVR = true;
+
+				} );
+
 			} )
 			.catch( function () {
 				// no displays
@@ -174,54 +263,11 @@ function init() {
 
 	}
 
-	scene.add( new THREE.HemisphereLight( 0x606060, 0x404040 ) );
-
-	var light = new THREE.DirectionalLight( 0xffffff );
-	light.position.set( 1, 1, 1 ).normalize();
-	scene.add( light );
-
-	controller1 = new THREE.ViveController( 0 );
-	controller1.standingMatrix = controls.getStandingMatrix();
-	scene.add( controller1 );
-
-	controller1.addEventListener( 'triggerdown', onTriggerDown );
-	controller1.addEventListener( 'triggerup', onTriggerUp );
-
-	controller2 = new THREE.ViveController( 1 );
-	controller2.standingMatrix = controls.getStandingMatrix();
-	scene.add( controller2 );
-
-	controller2.addEventListener( 'triggerdown', onTriggerDown );
-	controller2.addEventListener( 'triggerup', onTriggerUp );
-
-	var lineGeometry = new THREE.Geometry();
-	lineGeometry.vertices.push( new THREE.Vector3( 0, 0, 0 ) );
-	lineGeometry.vertices.push( new THREE.Vector3( 0, 0, - 1 ) );
-
-	var line = new THREE.Line( lineGeometry );
-	line.name = 'line';
-	line.scale.z = 5;
-
-	controller1.add( line.clone() );
-	controller2.add( line.clone() );
-
-	var loader = new THREE.OBJLoader();
-	loader.setPath( 'assets/' );
-	loader.load( 'vr_controller_vive_1_5.obj', object => {
-
-		var loader = new THREE.TextureLoader();
-		loader.setPath( 'assets/' );
-
-		var controller = object.children[ 0 ];
-		controller.material.map = loader.load( 'onepointfive_texture.png' );
-		controller.material.specularMap = loader.load( 'onepointfive_spec.png' );
-
-		controller1.add( object.clone() );
-		controller2.add( object.clone() );
-
-	} );
-
 	scene.add( world );
+
+	window.addEventListener( 'mousedown', onMouseDown );
+	window.addEventListener( 'mouseup', onMouseUp );
+	window.addEventListener( 'mousemove', onMouseMove );
 
 	window.addEventListener( 'resize', onWindowResize );
 
@@ -265,7 +311,10 @@ function loadMap() {
 			.then( res => res.json() )
 			.then( res => createCountriesMap( res ) )
 			.then( res => countriesData = res )
-		] ).then( _ => buildMap() ).then( _ => render() );
+		] )
+	.then( _ => aggregateMigrationData() )
+	.then( _ => buildMap() )
+	.then( _ => render() );
 
 }
 
@@ -506,6 +555,7 @@ const lineMaterial = new THREE.RawShaderMaterial( {
 		opacity: { type: 'f', value: .5 },
 		time: { type: 'f', value: 0 },
 		fade: { type: 'f', value: 0 },
+		fadeOpacity: { type: 'f', value: 0 },
 		direction: { type: 'f', value: 0 },
 		width: { type: 'f', value: 0 },
 		steps: { type: 'f', value: 0 }
@@ -517,41 +567,112 @@ const lineMaterial = new THREE.RawShaderMaterial( {
 	fragmentShader: document.getElementById( 'line-fs' ).textContent
 } );
 
+let selectedCountry = null;
 const linesObject = new THREE.Object3D();
 world.add( linesObject );
 
+function selectCountry( country ) {
+
+	if( selectedCountry ) {
+
+		selectedCountry = country;
+
+		hideConnections().then( _ => {
+			createConnections( country );
+		});
+
+	} else {
+
+		selectedCountry = country;
+		createConnections( country );
+
+	}
+
+}
+
+function hideConnections() {
+
+	opacity = 1;
+	nOpacity = 0;
+
+	nTextOpacity = 0;
+
+	return new Promise( ( resolve, reject ) => {
+		setTimeout( function() {
+			while( linesObject.children.length ) linesObject.remove( linesObject.children[ 0 ] )
+			countriesData.forEach( c => {
+				if( c.label ) c.label.mesh.visible = false;
+				if( c.labelIn ) c.labelIn.mesh.visible = false;
+				if( c.labelOut ) c.labelOut.mesh.visible = false;
+				textOpacity = 0;
+				nTextOpacity = 0;
+			} );
+			resolve();
+		}, 1000 );
+	});
+
+}
+
+function formatNumber( value, sizes, decimals ) {
+
+	if(value == 0) return '0';
+
+	var k = 1000; // or 1024 for binary
+	var dm = decimals || 2;
+	var i = Math.floor(Math.log(value) / Math.log(k));
+
+	return parseFloat((value / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+
+}
+
+var sizes = [ '', 'K', 'M', 'G' ];
+
+function restoreValue( v ) {
+
+	return globalMin + v * ( globalMax - globalMin );
+
+}
+
 function createConnections( country ) {
-
-	fade = 0.;
-	nFade = 0.;
-
-	while( linesObject.children.length ) linesObject.remove( linesObject.children[ 0 ] )
-	countriesData.forEach( c => { if( c.label ) c.label.mesh.visible = false; } );
 
 	if( country === null ) return;
 
+	nOpacity = 1;
+	nTextOpacity = 1;
+
 	const cty = countriesData.get( country );
 	cty.label.mesh.visible = true;
+	cty.labelIn.set( `TOTAL OUT: ${formatNumber( restoreValue( cty.totalOut ), sizes, 2 )}` );
+	cty.labelIn.mesh.visible = true;
+	cty.labelOut.set( `TOTAL IN: ${formatNumber( restoreValue( cty.totalIn ), sizes, 2 )}` );
+	cty.labelOut.mesh.visible = true;
 	const from = cty.latlng;
 	const w = .5;
-	const min = .01;
+	const min = 10000;
+
+	let show = new Set();
 
 	inData.get( country ).forEach( ( amount, toCountry ) => {
 
-		if( amount > min ) {
+		if( toCountry != country ) {
 			const c = countriesData.get( toCountry );
 			if( c ) {
-				if( c.label ) c.label.mesh.visible = true;
-				const to = c.latlng;
-				const [ g, d ] = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, w * amount );
-				const mat = lineMaterial.clone();
-				mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
-				mat.uniforms.opacity.value = amount;
-				mat.uniforms.steps.value = d;
-				mat.uniforms.width.value = w * amount;
-				mat.uniforms.direction.value = -1;
-				const line = new THREE.Mesh( g, mat );
-				linesObject.add( line );
+				var r = restoreValue( amount );
+				const n = formatNumber( r, sizes, 2 );
+				c.labelIn.set( `OUT: ${n}` );
+				if( r >= min ) {
+					const to = c.latlng;
+					const [ g, d ] = join( { lat: from[ 0 ], lon: from[ 1 ] }, { lat: to[ 0 ], lon: to[ 1 ] }, w * amount );
+					const mat = lineMaterial.clone();
+					mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
+					mat.uniforms.opacity.value = amount;
+					mat.uniforms.steps.value = d;
+					mat.uniforms.width.value = w * amount;
+					mat.uniforms.direction.value = -1;
+					const line = new THREE.Mesh( g, mat );
+					linesObject.add( line );
+					show.add( c );
+				}
 			} else {
 				console.log( 'Missing country ', toCountry );
 			}
@@ -561,20 +682,25 @@ function createConnections( country ) {
 
 	outData.get( country ).forEach( ( amount, toCountry ) => {
 
-		if( amount > min ) {
+		if( toCountry !== country ) {
 			const c = countriesData.get( toCountry );
 			if( c ) {
-				if( c.label ) c.label.mesh.visible = true;
-				const to = c.latlng;
-				const [ g, d ] = join( { lat: to[ 0 ], lon: to[ 1 ] }, { lat: from[ 0 ], lon: from[ 1 ] }, w * amount );
-				const mat = lineMaterial.clone();
-				mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
-				mat.uniforms.opacity.value = amount;
-				mat.uniforms.steps.value = d;
-				mat.uniforms.width.value = w * amount;
-				mat.uniforms.direction.value = 1;
-				const line = new THREE.Mesh( g, mat );
-				linesObject.add( line );
+				var r = restoreValue( amount );
+				const n = formatNumber( r, sizes, 2 );
+				c.labelOut.set( `IN: ${n}` );
+				if( r >= min ) {
+					const to = c.latlng;
+					const [ g, d ] = join( { lat: to[ 0 ], lon: to[ 1 ] }, { lat: from[ 0 ], lon: from[ 1 ] }, w * amount );
+					const mat = lineMaterial.clone();
+					mat.uniforms.color.value.copy( regions[ subregions[ c.subregion ] ].color );
+					mat.uniforms.opacity.value = amount;
+					mat.uniforms.steps.value = d;
+					mat.uniforms.width.value = w * amount;
+					mat.uniforms.direction.value = 1;
+					const line = new THREE.Mesh( g, mat );
+					linesObject.add( line );
+					show.add( c );
+				}
 			} else {
 				console.log( 'Missing country ', toCountry );
 			}
@@ -582,6 +708,13 @@ function createConnections( country ) {
 
 	} );
 
+	show.forEach( c => {
+		c.labelIn.mesh.visible = true;
+		c.labelOut.mesh.visible = true;
+		c.label.mesh.visible = true;
+	})
+
+	fade = 0;
 	nFade = 1;
 
 }
@@ -611,9 +744,34 @@ function toASCII(s){
 
 };
 
+function aggregateMigrationData() {
+
+	countriesData.forEach( c => {
+
+		let totalIn = 0;
+
+		const inValues = inData.get( c.cca3 )
+		if( inValues ) {
+			inValues.forEach( inC => totalIn += inC );
+		}
+
+		c.totalIn = totalIn;
+
+		let totalOut = 0;
+
+		const outValues = outData.get( c.cca3 )
+		if( outValues ) {
+			outValues.forEach( inC => totalOut += inC );
+		}
+
+		c.totalOut = totalOut;
+
+	} );
+
+}
+
 function buildMap() {
 
-	var material = new THREE.LineBasicMaterial( { linewidth: 2 });
 	var min = 10000000, max = -10000000;
 
 	var lines = 0;
@@ -669,41 +827,61 @@ function buildMap() {
 
 				}
 
-				var capital = countriesData.get( id );
-				if( capital ) {
-
-					var res = latLngToVec3( capital.latlng[ 0 ], capital.latlng[ 1 ] );
-
-					var sphere = new THREE.Mesh(
-						new THREE.BoxBufferGeometry( .1, .1, .1 ),
-						new THREE.MeshBasicMaterial( { color: 0x0ff00ff })
-					)
-					sphere.position.copy( res );
-					//world.add( sphere );
-
-					var label = new THREE.Text( atlasRobotoCondensed );
-					label.set( toASCII( capital.name.common ).toUpperCase() );
-					label.mesh.position.copy( res );
-					label.mesh.lookAt( world.position )
-					world.add( label.mesh );
-					label.mesh.visible = false;
-					capital.label = label;
-
-				} else {
-					console.log( id + ' not found')
-				}
-
 			})
 
 		} );
 
 	} );
 
+	countriesData.forEach( capital => {
+
+		var res = latLngToVec3( capital.latlng[ 0 ], capital.latlng[ 1 ] );
+
+		var sphere = new THREE.Mesh(
+			new THREE.BoxBufferGeometry( .1, .1, .1 ),
+			new THREE.MeshBasicMaterial( { color: 0x0ff00ff })
+		)
+		sphere.position.copy( res );
+		//world.add( sphere );
+
+		var panel = new THREE.Object3D();
+		world.add( panel );
+		panel.position.copy( res );
+		panel.lookAt( world.position );
+
+		var label = new THREE.Text( atlasRobotoCondensed );
+		label.set( toASCII( capital.name.common ).toUpperCase() );
+		panel.add( label.mesh );
+		label.mesh.visible = false;
+		capital.label = label;
+
+		var labelIn = new THREE.Text( atlasRobotoCondensed );
+		labelIn.mesh.position.y = -.15;
+		labelIn.mesh.scale.set( .85, .85, .85 );
+		labelIn.mesh.material.uniforms.color.value.setHex( 0x99d5f1 );
+		panel.add( labelIn.mesh );
+		labelIn.mesh.visible = false;
+		capital.labelIn = labelIn;
+
+		var labelOut = new THREE.Text( atlasRobotoCondensed );
+		labelOut.mesh.position.y = -.3;
+		labelOut.mesh.scale.set( .85, .85, .85 );
+		labelOut.mesh.material.uniforms.color.value.setHex( 0xfd692b );
+		panel.add( labelOut.mesh );
+		labelOut.mesh.visible = false;
+		capital.labelOut = labelOut;
+
+		capital.panel = panel;
+
+	});
+
 	lineGeometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
 
 	lineGeometry.computeBoundingSphere();
 
-	var mesh = new THREE.LineSegments( lineGeometry, material );
+	var lineMaterial = new THREE.LineBasicMaterial( { linewidth: 2, color: 0x99d5f1, depthTest: false, dephtWrite: false });
+	var mesh = new THREE.LineSegments( lineGeometry, lineMaterial );
+	mesh.renderOrder = 1;
 	mesh.fustrumCulled = false;
 	world.add( mesh );
 
@@ -728,13 +906,15 @@ function buildMap() {
 		},
 		vertexShader: document.getElementById( 'floor-vs' ).textContent,
 		fragmentShader: document.getElementById( 'floor-fs' ).textContent,
-		wireframe: !true,
+		wireframe: true,
 		depthWrite: false,
+		depthTest: false,
 		side: THREE.DoubleSide
 	} );
 
 	earthMesh = new THREE.Mesh( geometry, material );
 	earthMesh.scale.x = -1
+	earthMesh.renderOrder = 0;
 	world.add( earthMesh );
 
 }
@@ -747,35 +927,40 @@ function hashCamera() {
 
 function hitTest( obj ) {
 
-	let res = null;
-
-	performance.mark( 'start' );
-
 	hitCamera.position.copy( obj.position );
 	hitCamera.rotation.copy( obj.rotation );
-
 	renderer.render( hitScene, hitCamera, hitTexture );
 
-	renderer.readRenderTargetPixels( hitTexture, 0, 0, 1, 1, pixelBuffer );
+	return new Promise( ( resolve, reject ) => {
 
-	if( pixelBuffer[ 3 ] === 255 ) {
-		if( pixelBuffer[ 0 ] === 255 ) {
-			res = codes.get( pixelBuffer[ 2 ] )
-			console.log( hoveredCountry );
-		}
-	}
+		requestAnimationFrame( function() {
 
-	performance.mark( 'end' );
-	performance.measure( 'readpixels', 'start', 'end' );
+			var res = null;
+			var start = performance.now();
 
-	return res;
+			renderer.readRenderTargetPixels( hitTexture, 0, 0, 1, 1, pixelBuffer );
+
+			if( pixelBuffer[ 3 ] === 255 ) {
+				if( pixelBuffer[ 0 ] === 255 ) {
+					res = codes.get( pixelBuffer[ 2 ] )
+				}
+			}
+
+			console.log( res, performance.now() - start );
+			resolve( res );
+
+		} );
+
+	});
 
 }
 
 function render( timestamp ) {
 
-	controller1.update();
-	controller2.update();
+	if( isVR ) {
+		controller1.update();
+		controller2.update();
+	}
 
 	controls.update();
 
@@ -783,17 +968,28 @@ function render( timestamp ) {
 	var dt = ( time - previousTime ) / 1000000;
 
 	fade = nFade + (fade - nFade) * ( Math.pow( .02, 90 * dt ) );
+	opacity = nOpacity + (opacity - nOpacity) * ( Math.pow( .02, 900 * dt ) );
+	textOpacity = nTextOpacity + (textOpacity - nTextOpacity) * ( Math.pow( .02, 450 * dt ) );
 
 	var t = performance.now();
 	linesObject.children.forEach( l => {
 		l.material.uniforms.time.value = t;
 		l.material.uniforms.fade.value = fade;
+		l.material.uniforms.fadeOpacity.value = opacity;
 	} );
+
+	countriesData.forEach( c => {
+		c.label.material.uniforms.opacity.value = textOpacity;
+		c.labelIn.material.uniforms.opacity.value = textOpacity;
+		c.labelOut.material.uniforms.opacity.value = textOpacity;
+	});
 
 	effect.render( scene, camera );
 
-	intersectObjects( controller1 );
-	intersectObjects( controller2 );
+	if( isVR ) {
+		intersectObjects( controller1 );
+		intersectObjects( controller2 );
+	}
 
 	fboHelper.update();
 
@@ -810,7 +1006,7 @@ function onWindowResize() {
 	camera.updateProjectionMatrix();
 
 	fboHelper.setSize( container.clientWidth, container.clientHeight );
-	hitTexture.setSize( 1, 1 );
+	hitTexture.setSize( 100, 100 );
 	fboHelper.refreshFBO( hitTexture );
 
 }
