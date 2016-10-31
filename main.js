@@ -60,7 +60,7 @@ const container = document.getElementById( 'container' );
 const scene = new THREE.Scene();
 const hitScene = new THREE.Scene();
 
-const camera = new THREE.PerspectiveCamera( 75, 1, .01, 3000 );
+const camera = new THREE.PerspectiveCamera( 75, 1, .0001, 30 );
 camera.target = new THREE.Vector3();
 camera.position.set( 0, 0, 0.0001 );
 
@@ -69,7 +69,16 @@ const hitCamera = new THREE.PerspectiveCamera( .001, 1, .01, 3000 );
 var controls;
 
 const world = new THREE.Object3D();
+const backdropLayer = new THREE.Object3D();
+const labelsLayer = new THREE.Object3D();
+const linesLayer = new THREE.Object3D();
+world.add( backdropLayer );
+world.add( labelsLayer );
+world.add( linesLayer );
+
 const codes = new Map();
+
+const worldRadius = 2;
 
 const hitTexture = new THREE.WebGLRenderTarget( 1, 1 );
 hitTexture.texture.minFilter = THREE.NearestFilter;
@@ -100,6 +109,8 @@ let opacity = 1;
 let nOpacity = 1;
 let textOpacity = 0;
 let nTextOpacity = 0;
+let bordersOpacity = 0;
+let nBordersOpacity = 1;
 let previousTime = 0;
 
 let isVR = false;
@@ -354,7 +365,7 @@ function createWorldMask( source ) {
 			texture.needsUpdate = true;
 
 			const mesh = new THREE.Mesh(
-				new THREE.IcosahedronGeometry( 5, 6 ),
+				new THREE.IcosahedronGeometry( worldRadius, 6 ),
 				new THREE.MeshBasicMaterial( { map: texture, side: THREE.DoubleSide } )
 			);
 			hitScene.add( mesh );
@@ -429,7 +440,7 @@ function latLngToVec3( lat, lon ) {
 	lat = Math.max( - 85, Math.min( 85, lat ) );
 	const phi = ( 90 - lat ) * Math.PI / 180;
 	const theta = ( 180 - lon ) * Math.PI / 180;
-	const d = 5;
+	const d = worldRadius;
 	const x = -d * Math.sin( phi ) * Math.cos( theta );
 	const y = d * Math.cos( phi );
 	const z = d * Math.sin( phi ) * Math.sin( theta );
@@ -491,7 +502,7 @@ function join( a, b, w ) {
 
 	s.calculate();
 	s.calculateDistances();
-	s.reticulate( { distancePerStep: .2 } );
+	s.reticulate( { distancePerStep: worldRadius / 40 } );
 
  	const geometry = new THREE.BufferGeometry();
 
@@ -515,13 +526,15 @@ function join( a, b, w ) {
 	const uc = new THREE.Vector2( o, 1 );
 	const ud = new THREE.Vector2( o + i, 1 );
 
+	const width = w * worldRadius / 5;
+
 	for( let j = 0; j < s.lPoints.length - 1; j++ ) {
 
 		const from = s.lPoints[ j ];
 		const to = s.lPoints[ j + 1 ];
 
-		const pScaled1 = p.clone().multiplyScalar( j * w / s.lPoints.length );
-		const pScaled2 = p.clone().multiplyScalar( ( j + 1 ) * w / s.lPoints.length );
+		const pScaled1 = p.clone().multiplyScalar( j * width / s.lPoints.length );
+		const pScaled2 = p.clone().multiplyScalar( ( j + 1 ) * width / s.lPoints.length );
 		const a = from.clone().sub( pScaled1 );
 		const b = to.clone().sub( pScaled2 );
 		const c = from.clone().add( pScaled1 );
@@ -549,6 +562,11 @@ function join( a, b, w ) {
 
 }
 
+const backdropMaterial = new THREE.MeshBasicMaterial( { color: 0x0, transparent: true, opacity: .6, depthWrite: false } );
+
+const bordersMaterial = new THREE.LineBasicMaterial( { transparent: true, linewidth: 2, color: 0x99d5f1 });
+const shapesMaterial = new THREE.LineBasicMaterial( { transparent: true, linewidth: 2, color: 0x99d5f1 });
+
 const lineMaterial = new THREE.RawShaderMaterial( {
 	uniforms: {
 		color: { type: 'c', value: new THREE.Color( 0xffba00 ) },
@@ -569,9 +587,13 @@ const lineMaterial = new THREE.RawShaderMaterial( {
 
 let selectedCountry = null;
 const linesObject = new THREE.Object3D();
-world.add( linesObject );
+linesLayer.add( linesObject );
+
+let bordersMesh;
 
 function selectCountry( country ) {
+
+	if( country === selectedCountry ) return;
 
 	if( selectedCountry ) {
 
@@ -596,14 +618,17 @@ function hideConnections() {
 	nOpacity = 0;
 
 	nTextOpacity = 0;
+	nBordersOpacity = 1;
 
 	return new Promise( ( resolve, reject ) => {
 		setTimeout( function() {
 			while( linesObject.children.length ) linesObject.remove( linesObject.children[ 0 ] )
+			mapData.forEach( c => c.shape.visible = false );
 			countriesData.forEach( c => {
-				if( c.label ) c.label.mesh.visible = false;
-				if( c.labelIn ) c.labelIn.mesh.visible = false;
-				if( c.labelOut ) c.labelOut.mesh.visible = false;
+				c.label.mesh.visible = false;
+				c.labelIn.mesh.visible = false;
+				c.labelOut.mesh.visible = false;
+				c.backdrop.visible = false;
 				textOpacity = 0;
 				nTextOpacity = 0;
 			} );
@@ -639,13 +664,19 @@ function createConnections( country ) {
 
 	nOpacity = 1;
 	nTextOpacity = 1;
+	nBordersOpacity = .25;
+
+	var ct = mapData.get( country );
+	if( ct ) ct.shape.visible = true;
 
 	const cty = countriesData.get( country );
 	cty.label.mesh.visible = true;
+	cty.backdrop.visible = true;
 	cty.labelIn.set( `TOTAL OUT: ${formatNumber( restoreValue( cty.totalOut ), sizes, 2 )}` );
 	cty.labelIn.mesh.visible = true;
 	cty.labelOut.set( `TOTAL IN: ${formatNumber( restoreValue( cty.totalIn ), sizes, 2 )}` );
 	cty.labelOut.mesh.visible = true;
+	adjustWidth( cty );
 	const from = cty.latlng;
 	const w = .5;
 	const min = 10000;
@@ -709,9 +740,13 @@ function createConnections( country ) {
 	} );
 
 	show.forEach( c => {
+		adjustWidth( c );
 		c.labelIn.mesh.visible = true;
 		c.labelOut.mesh.visible = true;
 		c.label.mesh.visible = true;
+		c.backdrop.visible = true;
+		var ct = mapData.get( c.cca3 );
+		if( ct ) ct.shape.visible = true;
 	})
 
 	fade = 0;
@@ -770,6 +805,23 @@ function aggregateMigrationData() {
 
 }
 
+function memcpy (src, srcOffset, dst, dstOffset, length) {
+	var i
+	src = src.subarray || src.slice ? src : src.buffer
+	dst = dst.subarray || dst.slice ? dst : dst.buffer
+	src = srcOffset ? src.subarray ?
+		src.subarray(srcOffset, length && srcOffset + length) :
+		src.slice(srcOffset, length && srcOffset + length) : src
+	if (dst.set) {
+		dst.set(src, dstOffset)
+	} else {
+		for (i=0; i<src.length; i++) {
+			dst[i + dstOffset] = src[i]
+		}
+	}
+	return dst
+}
+
 function buildMap() {
 
 	var min = 10000000, max = -10000000;
@@ -791,15 +843,19 @@ function buildMap() {
 
 	var lineGeometry = new THREE.BufferGeometry();
 	var positions = new Float32Array( lines * 2 * 3 );
-	var ptr = 0;
+	var gptr = 0;
 
 	mapData.forEach( ( territory, id ) => {
 
 		var territoryGeometry = new THREE.BufferGeometry();
+		var parts = [];
 
 		territory.forEach( path => {
 
 			path.lines.forEach( line => {
+
+				var partPositions = new Float32Array( line.length * 2 * 3 );
+				var ptr = 0;
 
 				for( var j = 0; j < line.length - 1; j++ ) {
 
@@ -809,9 +865,9 @@ function buildMap() {
 
 					var res = latLngToVec3( p.y, p.x );
 
-					positions[ ptr ] = res.x;
-					positions[ ptr + 1 ] = res.y;
-					positions[ ptr + 2 ] = res.z;
+					partPositions[ ptr ] = res.x;
+					partPositions[ ptr + 1 ] = res.y;
+					partPositions[ ptr + 2 ] = res.z;
 
 					ptr += 3;
 
@@ -819,53 +875,84 @@ function buildMap() {
 
 					var res = latLngToVec3( p.y, p.x );
 
-					positions[ ptr ] = res.x;
-					positions[ ptr + 1 ] = res.y;
-					positions[ ptr + 2 ] = res.z;
+					partPositions[ ptr ] = res.x;
+					partPositions[ ptr + 1 ] = res.y;
+					partPositions[ ptr + 2 ] = res.z;
 
 					ptr += 3;
 
 				}
 
-			})
+				parts.push( partPositions );
+
+				memcpy( partPositions, 0, positions, gptr, partPositions.length );
+				gptr += ptr;
+
+			});
 
 		} );
 
+		var partPositions = new Float32Array( parts.reduce( ( a, b ) => a + b.length, 0 ) );
+
+		var tPtr = 0;
+		parts.forEach( p => {
+			memcpy( p, 0, partPositions, tPtr, p.length );
+			tPtr += p.length;
+		});
+
+		var partGeometry = new THREE.BufferGeometry();
+		partGeometry.addAttribute( 'position', new THREE.BufferAttribute( partPositions, 3 ) );
+		partGeometry.computeBoundingSphere();
+
+		var mesh = new THREE.LineSegments( partGeometry, shapesMaterial );
+		mesh.fustrumCulled = false;
+		mesh.visible = false;
+		backdropLayer.add( mesh );
+
+		territory.shape = mesh;
+
 	} );
+
+	const scale = worldRadius / 5;
+	const depth = .01;
 
 	countriesData.forEach( capital => {
 
 		var res = latLngToVec3( capital.latlng[ 0 ], capital.latlng[ 1 ] );
 
-		var sphere = new THREE.Mesh(
-			new THREE.BoxBufferGeometry( .1, .1, .1 ),
-			new THREE.MeshBasicMaterial( { color: 0x0ff00ff })
-		)
-		sphere.position.copy( res );
-		//world.add( sphere );
-
 		var panel = new THREE.Object3D();
-		world.add( panel );
+		labelsLayer.add( panel );
 		panel.position.copy( res );
 		panel.lookAt( world.position );
 
+		var backdrop = new THREE.Mesh(
+			new THREE.PlaneBufferGeometry( 1, .3 ),
+			backdropMaterial
+		);
+		backdrop.position.set( .5 - .05, -0.025, 0 );
+		backdrop.visible = false;
+		capital.backdrop = backdrop;
+		panel.add( backdrop );
+
 		var label = new THREE.Text( atlasRobotoCondensed );
+		label.mesh.scale.set( scale, scale, scale );
+		label.mesh.position.set( .05, 0, depth );
 		label.set( toASCII( capital.name.common ).toUpperCase() );
 		panel.add( label.mesh );
 		label.mesh.visible = false;
 		capital.label = label;
 
 		var labelIn = new THREE.Text( atlasRobotoCondensed );
-		labelIn.mesh.position.y = -.15;
-		labelIn.mesh.scale.set( .85, .85, .85 );
+		labelIn.mesh.position.set( .05, -.15 * scale, depth );
+		labelIn.mesh.scale.set( scale * .85, scale * .85, scale * .85 );
 		labelIn.mesh.material.uniforms.color.value.setHex( 0x99d5f1 );
 		panel.add( labelIn.mesh );
 		labelIn.mesh.visible = false;
 		capital.labelIn = labelIn;
 
 		var labelOut = new THREE.Text( atlasRobotoCondensed );
-		labelOut.mesh.position.y = -.3;
-		labelOut.mesh.scale.set( .85, .85, .85 );
+		labelOut.mesh.position.set( .05, -.3 * scale, depth );
+		labelOut.mesh.scale.set( scale * .85, scale * .85, scale * .85 );
 		labelOut.mesh.material.uniforms.color.value.setHex( 0xfd692b );
 		panel.add( labelOut.mesh );
 		labelOut.mesh.visible = false;
@@ -876,14 +963,11 @@ function buildMap() {
 	});
 
 	lineGeometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
-
 	lineGeometry.computeBoundingSphere();
 
-	var lineMaterial = new THREE.LineBasicMaterial( { linewidth: 2, color: 0x99d5f1, depthTest: false, dephtWrite: false });
-	var mesh = new THREE.LineSegments( lineGeometry, lineMaterial );
-	mesh.renderOrder = 1;
-	mesh.fustrumCulled = false;
-	world.add( mesh );
+	bordersMesh = new THREE.LineSegments( lineGeometry, bordersMaterial );
+	bordersMesh.fustrumCulled = false;
+	backdropLayer.add( bordersMesh );
 
 	/*var exporter = new THREE.OBJExporter();
 	var result = exporter.parse( scene );
@@ -893,7 +977,7 @@ function buildMap() {
 
 	window.location = url;*/
 
-	var geometry = new THREE.IcosahedronGeometry( 5, 6 );
+	var geometry = new THREE.IcosahedronGeometry( 0.05 + worldRadius, 6 );
 
 	var loader = new THREE.TextureLoader()
 	var heightMap = loader.load( 'assets/bathymetry_bw_composite_4k.jpg' );
@@ -907,15 +991,12 @@ function buildMap() {
 		vertexShader: document.getElementById( 'floor-vs' ).textContent,
 		fragmentShader: document.getElementById( 'floor-fs' ).textContent,
 		wireframe: true,
-		depthWrite: false,
-		depthTest: false,
 		side: THREE.DoubleSide
 	} );
 
 	earthMesh = new THREE.Mesh( geometry, material );
 	earthMesh.scale.x = -1
-	earthMesh.renderOrder = 0;
-	world.add( earthMesh );
+	backdropLayer.add( earthMesh );
 
 }
 
@@ -955,6 +1036,15 @@ function hitTest( obj ) {
 
 }
 
+function adjustWidth( city ) {
+
+	var w = Math.max( city.label.width, city.labelIn.width, city.labelOut.width );
+	const scale = worldRadius / 5;
+	city.backdrop.scale.x = .001 * ( scale * ( w + 300 ) );
+	city.backdrop.position.x = .5 * city.backdrop.scale.x;
+
+}
+
 function render( timestamp ) {
 
 	if( isVR ) {
@@ -970,6 +1060,7 @@ function render( timestamp ) {
 	fade = nFade + (fade - nFade) * ( Math.pow( .02, 90 * dt ) );
 	opacity = nOpacity + (opacity - nOpacity) * ( Math.pow( .02, 900 * dt ) );
 	textOpacity = nTextOpacity + (textOpacity - nTextOpacity) * ( Math.pow( .02, 450 * dt ) );
+	bordersOpacity = nBordersOpacity + (bordersOpacity - nBordersOpacity) * ( Math.pow( .02, 450 * dt ) );
 
 	var t = performance.now();
 	linesObject.children.forEach( l => {
@@ -977,6 +1068,15 @@ function render( timestamp ) {
 		l.material.uniforms.fade.value = fade;
 		l.material.uniforms.fadeOpacity.value = opacity;
 	} );
+
+	backdropMaterial.opacity = .6 * textOpacity;
+
+	bordersMesh.material.opacity = bordersOpacity;
+	mapData.forEach( c => {
+		//c.shape.material.opacity = textOpacity;
+		var s = 1. - textOpacity * .01;
+		c.shape.scale.set( s, s, s );
+	});
 
 	countriesData.forEach( c => {
 		c.label.material.uniforms.opacity.value = textOpacity;
