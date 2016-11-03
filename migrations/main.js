@@ -988,8 +988,8 @@ function buildMap() {
 			diffuseMap: { type: 't', value: diffuseMap },
 			floorMap: { type: 't', value: heightMap }
 		},
-		vertexShader: document.getElementById( 'floor-vs' ).textContent,
-		fragmentShader: document.getElementById( 'floor-fs' ).textContent,
+		vertexShader: document.getElementById( 'globe-vs' ).textContent,
+		fragmentShader: document.getElementById( 'globe-fs' ).textContent,
 		wireframe: true,
 		side: THREE.DoubleSide
 	} );
