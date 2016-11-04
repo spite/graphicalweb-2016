@@ -83,7 +83,28 @@ function init() {
 		.then( _ => initPointScene() )
 		.then( _ => initLineScene() )
 		.then( _ => initCubesScene() )
+		.then( _ => attachEventHandlers() )
 		.then( _ => render() );
+
+}
+
+function attachEventHandlers() {
+
+	document.getElementById( 'togglePoints' ).addEventListener( 'click', function( e ) {
+		points.visible = !points.visible;
+		e.preventDefault();
+	});
+
+	document.getElementById( 'toggleLines' ).addEventListener( 'click', function( e ) {
+		lines.visible = !lines.visible;
+		e.preventDefault();
+	});
+
+	document.getElementById( 'toggleMeshes' ).addEventListener( 'click', function( e ) {
+		cubes.visible = !cubes.visible;
+		e.preventDefault();
+	});
+
 
 }
 
@@ -133,7 +154,8 @@ function initPointScene() {
 
 	const pointsMaterial = new THREE.PointsMaterial({
 		size: .01,
-		sizeAttenuation: true
+		sizeAttenuation: true,
+		transparent: true
 	});
 
 	let pointsMesh = new THREE.Points(
@@ -167,7 +189,9 @@ function initLineScene() {
 	linesGeometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
 	linesGeometry.computeBoundingSphere();
 
-	const linesMaterial = new THREE.LineBasicMaterial();
+	const linesMaterial = new THREE.LineBasicMaterial({
+		transparent: true
+	});
 
 	let linesMesh = new THREE.LineSegments(
 		linesGeometry,

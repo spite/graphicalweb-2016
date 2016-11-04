@@ -16,6 +16,7 @@
 			}
 			a{ color: white; text-shadow: 0 1px 0 rgba( 0,0,0,.5 ) }
 			#container canvas{ position: absolute; left: 0; top: 0; width: 100%; height: 100%; bottom: 0;}
+			#options{ position: absolute; left: 0; top: 0; padding: 20px; }
 		</style>
 		<script src="three.min.js" ></script>
 		<script src="OrbitControls.js" ></script>
@@ -23,5 +24,10 @@
 		<script src="index.js" ></script>
 	</head>
 	<body>
+	<div id="options">
+	<a href="#" id="togglePoints" >Toggle points</a>
+	<a href="#" id="toggleLines" >Toggle lines</a>
+	<a href="#" id="toggleMeshes" >Toggle meshes</a>
+	</div>
 	</body>
 </html>
