@@ -141,6 +141,9 @@ function initPointScene() {
 		pointsMaterial
 	);
 
+	pointsMesh.visible = false;
+	window.points = pointsMesh;
+
 	scene.add( pointsMesh );
 
 }
@@ -170,6 +173,9 @@ function initLineScene() {
 		linesGeometry,
 		linesMaterial
 	);
+
+	linesMesh.visible = false;
+	window.lines = linesMesh;
 
 	scene.add( linesMesh );
 
@@ -233,6 +239,9 @@ function initCubesScene() {
 		cubesGeometry,
 		cubesMaterial
 	);
+
+	cubesMesh.visible = false;
+	window.cubes = cubesMesh;
 
 	scene.add( cubesMesh );
 
