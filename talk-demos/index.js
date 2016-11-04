@@ -136,7 +136,7 @@ function initPointScene() {
 		sizeAttenuation: true
 	});
 
-	let pointsMesh = new THREE.PointCloud(
+	let pointsMesh = new THREE.Points(
 		pointsGeometry,
 		pointsMaterial
 	);
