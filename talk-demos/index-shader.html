@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<title>Shader Demo</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			*{ box-sizing: border-box; margin: 0; padding: 0 }
+			body {
+				color: #ffffff;
+				font-family: tahoma;
+				font-size:13px;
+				background-color: #222;
+				margin: 0px;
+				overflow: hidden;
+			}
+			a{ color: white; text-shadow: 0 1px 0 rgba( 0,0,0,.5 ) }
+			#container canvas{ position: absolute; left: 0; top: 0; width: 100%; height: 100%; bottom: 0;}
+		</style>
+		<script src="three.min.js" ></script>
+		<script src="OrbitControls.js" ></script>
+		<script src="index-shader.js" ></script>
+
+<script id="shader-vs" type="x-shader/x-vertex" >
+precision highp float;
+
+attribute vec3 position;
+attribute vec3 color;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+varying vec3 vColor;
+
+void main(){
+
+	vColor = color;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1. );
+
+}
+</script>
+
+<script id="shader-fs" type="x-shader/x-fragment" >
+precision highp float;
+
+varying vec3 vColor;
+
+void main(){
+
+	gl_FragColor = vec4( vColor, 1. );
+
+}
+
+</script>
+
+	</head>
+	<body>
+	</body>
+</html>
